@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build with SDL3",
+        "type": "shell",
+        "command": "C:/msys64/mingw64/bin/g++.exe",
+        "args": [
+          "-Wall",
+          "-Wextra",
+          "-g3",
+          "-Ic:/Users/melle/Desktop/sdlvoorjari/project/include",  // 👈 important!
+          "-Lc:/Users/melle/Desktop/sdlvoorjari/project/lib",
+          "-lSDL3",
+          "c:/Users/melle/Desktop/sdlvoorjari/main.cpp",
+          "-o",
+          "c:/Users/melle/Desktop/sdlvoorjari/output/main.exe"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": ["$gcc"],
+        "detail": "Builds main.cpp with SDL3 include path"
+      }
+    ]
+  }
+  
