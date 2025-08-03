@@ -99,14 +99,23 @@ void InputManager::handleKeyUpEvent(const SDL_KeyboardEvent& key)
     }
 }
 
+void InputManager::setHandsGrabbing(Entity* entity, bool grabbing) {
+    if (!entity) return;
+    for (auto& app : entity->appendages) {
+        if (app->isHandOrFoot && app->shapetype == TRIANGLE) {
+            app->grabbing = grabbing;
+        }
+        setHandsGrabbing(app.get(), grabbing);
+    }
+}
+
 void InputManager::handleMouseButtonDown(const SDL_MouseButtonEvent& button)
 {
     mouseX_ = button.x;
     mouseY_ = button.y;
     game_->logDebug("Mouse down at x=%.2f, y=%.2f, button=%d, inventoryOpen=%d\n", mouseX_, mouseY_, button.button, inventoryOpen_);
-    if (!player_) {
-        game_->logDebug("Error: player_ is null in handleMouseButtonDown\n");
-        return;
+    if (button.button == SDL_BUTTON_LEFT && !inventoryOpen_) {
+    setHandsGrabbing(player_, true);
     }
     if (button.button == SDL_BUTTON_LEFT && inventoryOpen_) {
         if (!handleButtonClick(mouseX_, mouseY_)) {
@@ -160,6 +169,9 @@ void InputManager::handleMouseButtonDown(const SDL_MouseButtonEvent& button)
 
 void InputManager::handleMouseButtonUp(const SDL_MouseButtonEvent& button)
 {
+    if (button.button == SDL_BUTTON_LEFT && !inventoryOpen_) {
+    setHandsGrabbing(player_, false);
+    }
     if (button.button == SDL_BUTTON_LEFT && draggedAppendage_) {
         draggedAppendage_ = nullptr;
         game_->logDebug("Stopped dragging appendage\n");

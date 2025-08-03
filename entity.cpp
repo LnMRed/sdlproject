@@ -538,7 +538,7 @@ void collectEntityGeometry(Entity* entity, std::vector<RenderBatch>& batches) {
         batches.push_back({{}, {}, entity->shapetype});
         batch = &batches.back();
     }int baseIndex = batch->vertices.size();
-SDL_Color color = entity->isHandOrFoot ? SDL_Color{255, 255, 0, 255} : entity->color;
+SDL_Color color = entity->isHandOrFoot ? SDL_Color{255, 0, 255, 255} : entity->color;
 float cx = entity->Xpos;
 float cy = entity->Ypos;
 float rot = entity->rotation;

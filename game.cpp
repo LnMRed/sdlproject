@@ -14,7 +14,7 @@ Game::Game()
     : window_(nullptr),
       renderer_(nullptr),
       inputManager_(this),
-      debug_(true),
+      debug_(false),
       lastStepTime_(0),
       currentStepFoot_(0),
       walkCycle_(0.0f),
@@ -67,8 +67,69 @@ bool Game::init() {
     if (player_.texture) {
         SDL_SetTextureScaleMode(player_.texture, SDL_SCALEMODE_LINEAR);
     }
+
+    float ballX = SCREEN_WIDTH - 60;
+    float ballY = SCREEN_HEIGHT - 60;
+    int ballRadius = 30;
+    initEntity(&grabbableBall_, renderer_, ballX, ballY, ballRadius * 2, ballRadius * 2, Shape::CIRCLE, {0, 200, 255, 255}, ballRadius * 2, false);
+    grabbableBall_.isCore = false;
+    grabbableBall_.Xvel = 0.0f;
+    grabbableBall_.Yvel = 0.0f;
+
+    // Add to grabbable entities list
+    grabbableEntities_.push_back(&grabbableBall_);
+
     logDebug("Player initialized at x=%.2f, y=%.2f, texture=%p\n", player_.Xpos, player_.Ypos, player_.texture);
     return true;
+}
+
+void Game::updateHands(Entity* entity) {
+    for (auto& app : entity->appendages) {
+        if (app->isHandOrFoot && app->shapetype == TRIANGLE && !inputManager_.getInventoryOpen()) {
+    float nodeX = 0.0f, nodeY = 0.0f;
+    if (findParentNodePosition(app.get(), nodeX, nodeY)) {
+        float dx = inputManager_.getMouseX() - nodeX;
+        float dy = inputManager_.getMouseY() - nodeY;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        float maxArmLength = 120.0f;
+        if (dist > maxArmLength) {
+            dx *= maxArmLength / dist;
+            dy *= maxArmLength / dist;
+        }
+        // If just started grabbing, snap offset to mouse
+        static bool wasGrabbing = false;
+        if (app->grabbing && !wasGrabbing) {
+            app->offsetX = dx;
+            app->offsetY = dy;
+        }
+        wasGrabbing = app->grabbing;
+
+        float handLerp = std::clamp(dist / 60.0f, 0.15f, 0.7f);
+        app->offsetX += (dx - app->offsetX) * handLerp;
+        app->offsetY += (dy - app->offsetY) * handLerp;
+        app->rotation = std::atan2(dy, dx);
+        }
+        }
+        updateHands(app.get());
+    }
+}
+
+Entity* Game::getGrabbableAt(float x, float y, float tolerance = 15.0f) {
+    // Check the floor (y ≈ 700)
+    if (std::abs(y - 700.0f) < tolerance) {
+        return nullptr; // nullptr means the floor
+    }
+    // Example: check for other grabbable entities (weapons, etc.)
+    for (Entity* obj : grabbableEntities_) {
+        // You can use bounding box, circle, or custom logic
+        float dx = x - obj->Xpos;
+        float dy = y - obj->Ypos;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist < obj->width / 2.0f + tolerance) {
+            return obj;
+        }
+    }
+    return nullptr;
 }
 
 void Game::update() {
@@ -98,17 +159,26 @@ void Game::update() {
         if (maxX > SCREEN_WIDTH) {
             player_.Xpos -= (maxX - SCREEN_WIDTH); // Shift left so rightmost point is at screen edge
         }
+
+        grabbableBall_.Yvel += GRAVITY;
+        grabbableBall_.Ypos += grabbableBall_.Yvel;
+
+        // Simple floor collision for the ball
+        float ballBottom = grabbableBall_.Ypos + grabbableBall_.height / 2.0f;
+        if (ballBottom >= SCREEN_HEIGHT) {
+            grabbableBall_.Ypos -= (ballBottom - SCREEN_HEIGHT);
+            grabbableBall_.Yvel = 0.0f;
+        }
     }
 
     // Handle movement
 auto feet = getFeet(&player_);
     int feetOnGround = 0;
-    bool canMove = false;
+    bool canMove = true;
     bool canJump = false;
     for (auto* foot : feet) {
         if (foot->onGround) {
             feetOnGround++;
-            canMove = true;
             canJump = true;
         }
     }
@@ -150,9 +220,51 @@ auto feet = getFeet(&player_);
 
     // Update all appendage positions to follow the core entity
     updateAppendagePositions(&player_);
+    updateHands(&player_);
+for (auto& app : player_.appendages) {
+    if (app->isHandOrFoot && app->shapetype == TRIANGLE && app->grabbing) {
+        float nodeX = 0.0f, nodeY = 0.0f;
+        if (findParentNodePosition(app.get(), nodeX, nodeY)) {
+            float handTipX = nodeX + app->offsetX;
+            float handTipY = nodeY + app->offsetY;
 
-    logDebug("Updated player: x=%.2f, y=%.2f, Xvel=%.2f, Yvel=%.2f, canMove=%d\n",
-             player_.Xpos, player_.Ypos, player_.Xvel, player_.Yvel, canMove);
+            // Only set grabbedObject when grab starts
+            if (app->grabbedObject == nullptr) {
+                app->grabbedObject = getGrabbableAt(handTipX, handTipY);
+            }
+
+            // If grabbing the floor
+            if (app->grabbedObject == nullptr && std::abs(handTipY - 700.0f) < 15.0f) {
+                // Move player by mouse delta
+                static float lastMouseX = inputManager_.getMouseX();
+                static float lastMouseY = inputManager_.getMouseY();
+                float mouseDX = inputManager_.getMouseX() - lastMouseX;
+                float mouseDY = inputManager_.getMouseY() - lastMouseY;
+                player_.Xpos += mouseDX;
+                player_.Ypos += mouseDY;
+                player_.Yvel = 0.0f;
+                lastMouseX = inputManager_.getMouseX();
+                lastMouseY = inputManager_.getMouseY();
+            }
+            // If grabbing an object
+            else if (app->grabbedObject != nullptr) {
+                float springStrength = 0.5f;
+                float dx = handTipX - app->grabbedObject->Xpos;
+                float dy = handTipY - app->grabbedObject->Ypos;
+                app->grabbedObject->Xvel += dx * springStrength;
+                app->grabbedObject->Yvel += dy * springStrength;
+                app->grabbedObject->Xpos += app->grabbedObject->Xvel;
+                app->grabbedObject->Ypos += app->grabbedObject->Yvel;
+                // Optionally dampen velocity:
+                app->grabbedObject->Xvel *= 0.7f;
+                app->grabbedObject->Yvel *= 0.7f;
+            }
+        }
+    } else {
+        // If not grabbing, clear grabbedObject
+        app->grabbedObject = nullptr;
+    }
+}
 }
 
 void Game::getEntityMinMaxX(Entity* entity, float& minX, float& maxX) {
@@ -377,6 +489,10 @@ void Game::render() {
     renderUI();
     SDL_SetRenderDrawColor(renderer_, 255, 0, 0, 255);
     drawEntityWithNodesAndLines(renderer_, &player_);
+
+    SDL_SetRenderDrawColor(renderer_, 0, 200, 255, 255);
+    drawEntityWithNodesAndLines(renderer_, &grabbableBall_);
+
     SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
     SDL_RenderLine(renderer_, 0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SCREEN_HEIGHT - 1);
     SDL_RenderPresent(renderer_);
@@ -394,16 +510,28 @@ bool Game::addAppendageToEntity(Entity* entity, float mouseX, float mouseY, Shap
                 return false;
             }
             Entity appendage;
-            int width = (shape == TRIANGLE) ? 50 : 50;
-            int height = (shape == TRIANGLE) ? 50 : 50;
+            int width = 50;
+            int height = 50;
             SDL_FPoint nodePos = {entity->nodes[i].x, entity->nodes[i].y};
-            float offset = (shape == TRIANGLE) ? 50 : 50;
+            float offset = 50;
             initEntity(&appendage, renderer_, nodePos.x, nodePos.y + offset, width, height, shape, {0, 255, 0, 255}, 50, isHandOrFoot);
             appendage.isCore = false;
             appendage.coreNodeIndex = i;
             appendage.offsetX = 0.0f;
             appendage.offsetY = offset;
-            appendage.isLeg = isHandOrFoot; // Set isLeg for hands/feet (feet are legs)
+
+            // --- HAND/FOOT LOGIC START ---
+            appendage.isHandOrFoot = isHandOrFoot;
+            if (isHandOrFoot && shape == TRIANGLE) {
+                appendage.isLeg = false; // It's a hand
+                // Optionally: appendage.isHand = true; // If you add this field
+            } else if (isHandOrFoot && shape == RECTANGLE) {
+                appendage.isLeg = true; // It's a foot/leg
+            } else {
+                appendage.isLeg = false;
+            }
+            // --- HAND/FOOT LOGIC END ---
+
             entity->appendages.push_back(std::make_unique<Entity>(std::move(appendage)));
             nodeIndex = i;
             parentEntity = entity;

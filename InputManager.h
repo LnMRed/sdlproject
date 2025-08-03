@@ -81,6 +81,7 @@ private:
     void handleMouseButtonUp(const SDL_MouseButtonEvent& button);
     void handleMouseMotion(const SDL_MouseMotionEvent& motion);
     bool handleButtonClick(float x, float y);
+    void setHandsGrabbing(Entity* entity, bool grabbing);
 };
 
 #endif // INPUT_MANAGER_H

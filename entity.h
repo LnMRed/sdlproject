@@ -31,9 +31,11 @@ int nodeCount;
 bool isCore; // True for core shape (torso), false for appendages
 bool isHandOrFoot; // True for hands or feet appendages
 bool isLeg; // New flag for legs
+bool grabbing = false; // True if this entity is grabbing something
 int coreNodeIndex; // Index of the core shape's node this appendage is attached to (-1 for core)
 float offsetX, offsetY;
 float rotation;
+Entity* grabbedObject = nullptr;
 std::vector<std::unique_ptr<Entity>> appendages; // Sub-entities (limbs)
 
 // Constructor for initializing with coreNodeIndex
@@ -41,7 +43,7 @@ Entity(int coreIndex = -1)
     : shapetype(RECTANGLE), Xpos(0.0f), Ypos(0.0f), Xvel(0.0f), Yvel(0.0f),
       width(0), height(0), size(0), onGround(false), color{255, 255, 255, 255},
       nodeCount(0), isCore(coreIndex == -1), isHandOrFoot(false),
-      coreNodeIndex(coreIndex), offsetX(0.0f), offsetY(0.0f), rotation(0.0f) {
+      coreNodeIndex(coreIndex), offsetX(0.0f), offsetY(0.0f), rotation(0.0f), grabbedObject(nullptr) {
     // Initialize nodes and nodesRel arrays to zero
     for (int i = 0; i < MAX_NODES; ++i) {
         nodes[i] = {0.0f, 0.0f};
@@ -58,9 +60,9 @@ Entity(Entity&& other) noexcept
     : shapetype(other.shapetype), Xpos(other.Xpos), Ypos(other.Ypos),
       Xvel(other.Xvel), Yvel(other.Yvel), width(other.width), height(other.height),
       size(other.size), onGround(other.onGround), color(other.color),
-      nodeCount(other.nodeCount), isCore(other.isCore), isHandOrFoot(other.isHandOrFoot), isLeg(other.isLeg),
+      nodeCount(other.nodeCount), isCore(other.isCore), isHandOrFoot(other.isHandOrFoot), isLeg(other.isLeg), grabbing(other.grabbing),
       coreNodeIndex(other.coreNodeIndex), offsetX(other.offsetX), offsetY(other.offsetY),
-      rotation(other.rotation), appendages(std::move(other.appendages)) {
+      rotation(other.rotation), grabbedObject(other.grabbedObject), appendages(std::move(other.appendages)) {
     for (int i = 0; i < MAX_NODES; ++i) {
         nodes[i] = other.nodes[i];
         nodesRel[i] = other.nodesRel[i];
@@ -84,10 +86,12 @@ Entity& operator=(Entity&& other) noexcept {
         isCore = other.isCore;
         isHandOrFoot = other.isHandOrFoot;
         isLeg = other.isLeg;
+        grabbing = other.grabbing;
         coreNodeIndex = other.coreNodeIndex;
         offsetX = other.offsetX;
         offsetY = other.offsetY;
         rotation = other.rotation;
+        grabbedObject = other.grabbedObject;
         appendages = std::move(other.appendages);
         for (int i = 0; i < MAX_NODES; ++i) {
             nodes[i] = other.nodes[i];
@@ -106,6 +110,7 @@ bool pointInTriangle(float px, float py, Entity* entity);
 bool pointInEntityShape(float px, float py, Entity* entity);
 NodeRel absoluteToRelative(Entity* entity, float abs_x, float abs_y);
 void switchShape(Entity* entity, Shape newShape);
+void updateNodePositions(Entity* entity);
 SDL_FPoint clampNodeToShape(SDL_FPoint pt, Entity* entity);
 NodeRel clampRelativeNodeToShape(NodeRel rel, Entity* entity);
 SDL_FPoint relativeToAbsolute(Entity* entity, NodeRel nodeRel);
