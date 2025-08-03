@@ -1,8 +1,11 @@
 #include "entity.h"
 #include <cmath>
 #include <algorithm>
-#include <iostream>#ifndef M_PI
+#include <iostream>
+
+#ifndef M_PI
 #define M_PI 3.14159265358979323846
+#endif
 
 NodeRel absoluteToRelative(Entity* entity, float abs_x, float abs_y) {
     NodeRel rel;
@@ -47,23 +50,21 @@ bool pointInRectangle(float px, float py, Entity* entity) {
     float top = -entity->height / 2.0f;
     float bottom = entity->height / 2.0f;
     bool inside = (rx >= left && rx <= right && ry >= top && ry <= bottom);
-    /*
     printf("Checking point in rectangle: px=%.2f, py=%.2f, center=(%.2f, %.2f), w=%d, h=%d, rotation=%.2f, rx=%.2f, ry=%.2f, inside=%d\n",
            px, py, cx, cy, entity->width, entity->height, entity->rotation, rx, ry, inside);
-           */
     return inside;
 }
+
 bool pointInCircle(float px, float py, Entity* entity) {
     float dx = px - entity->Xpos;
     float dy = py - entity->Ypos;
     float r = entity->width / 2.0f;
     bool inside = (dx * dx + dy * dy <= r * r);
-    /*
     printf("Checking point in circle: px=%.2f, py=%.2f, center=(%.2f, %.2f), radius=%.2f, inside=%d\n",
            px, py, entity->Xpos, entity->Ypos, r, inside);
-    */
-           return inside;
+    return inside;
 }
+
 bool pointInTriangle(float px, float py, Entity* entity) {
     float s = entity->width / 2.0f;
     float cx = entity->Xpos;
@@ -80,17 +81,16 @@ bool pointInTriangle(float px, float py, Entity* entity) {
     rp3.x = cx + (p3.x * cos(rot) - p3.y * sin(rot));
     rp3.y = cy + (p3.x * sin(rot) + p3.y * cos(rot));
     float denom = (rp2.y - rp3.y) * (rp1.x - rp3.x) + (rp3.x - rp2.x) * (rp1.y - rp3.y);
-    if (denom == 0.0f) {
-        printf("Triangle point check failed: degenerate triangle, denom=0\n");
+    if (fabs(denom) < 0.0001f) { // Relaxed tolerance
+        printf("Triangle point check failed: near-degenerate triangle, denom=%.6f\n", denom);
         return false;
     }
     float a = ((rp2.y - rp3.y) * (px - rp3.x) + (rp3.x - rp2.x) * (py - rp3.y)) / denom;
     float b = ((rp3.y - rp1.y) * (px - rp3.x) + (rp1.x - rp3.x) * (py - rp3.y)) / denom;
     float c = 1.0f - a - b;
-    bool inside = (a >= 0.0f && b >= 0.0f && c >= 0.0f);
-    /*
+    bool inside = (a >= -0.01f && b >= -0.01f && c >= -0.01f && (a + b + c) <= 1.01f); // Relaxed bounds
     printf("Checking point in triangle: px=%.2f, py=%.2f, center=(%.2f, %.2f), s=%.2f, rotation=%.2f, a=%.2f, b=%.2f, c=%.2f, inside=%d\n",
-           px, py, cx, cy, s, rot, a, b, c, inside); */
+           px, py, cx, cy, s, rot, a, b, c, inside);
     return inside;
 }
 bool pointInEntityShape(float px, float py, Entity* entity) {
@@ -105,6 +105,10 @@ bool pointInEntityShape(float px, float py, Entity* entity) {
 }
 
 void generateNodes(Entity* entity) {
+    if (!entity) {
+        printf("Error: generateNodes called with null entity\n");
+        return;
+    }
     entity->nodeCount = 0;
     switch (entity->shapetype) {
         case RECTANGLE:
@@ -123,105 +127,108 @@ void generateNodes(Entity* entity) {
             entity->nodeCount = 3;
             break;
         }
+        default:
+            printf("Error: Invalid shapetype %d in generateNodes\n", entity->shapetype);
+            return;
     }
     for (int i = 0; i < entity->nodeCount; ++i) {
         SDL_FPoint abs = relativeToAbsolute(entity, entity->nodesRel[i]);
         entity->nodes[i].x = abs.x;
         entity->nodes[i].y = abs.y;
-        /*
-        printf("Generated node %d: x=%.2f, y=%.2f\n", i, abs.x, abs.y);*/
+        printf("Generated node %d: x=%.2f, y=%.2f for entity at x=%.2f, y=%.2f, isHandOrFoot=%d\n",
+               i, abs.x, abs.y, entity->Xpos, entity->Ypos, entity->isHandOrFoot);
     }
-}void initEntity(Entity* entity, SDL_Renderer* renderer, float Xpos, float Ypos, int width, int height, Shape shape, SDL_Color color, int size, bool isHandOrFoot) {
+}
+
+
+void initEntity(Entity* entity, SDL_Renderer* renderer, float Xpos, float Ypos, int width, int height, Shape shape, SDL_Color color, int size, bool isHandOrFoot) {
+    if (!entity || !renderer) {
+        printf("Error: initEntity called with null entity or renderer\n");
+        return;
+    }
     entity->Xpos = Xpos;
     entity->Ypos = Ypos;
     entity->Xvel = 0;
     entity->Yvel = 0;
     entity->shapetype = shape;
-    entity->color = isHandOrFoot ? SDL_Color{255, 255, 0, 255} : color; // Yellow for hands/feet
+    entity->color = isHandOrFoot ? SDL_Color{255, 255, 0, 255} : color;
     entity->size = size;
     entity->width = width;
     entity->height = height;
     entity->nodeCount = 0;
-    entity->isCore = true;
+    entity->isCore = !isHandOrFoot; // Fix: Only core if not hand/foot
     entity->isHandOrFoot = isHandOrFoot;
+    entity->isLeg = isHandOrFoot;
     entity->coreNodeIndex = -1;
     entity->offsetX = 0.0f;
     entity->offsetY = (shape == TRIANGLE) ? width / 2.0f : height / 2.0f;
     entity->rotation = 0.0f;
     entity->appendages.clear();
-    entity->texture = nullptr; // Initialize texture to nullptr
+    entity->texture = nullptr;
     for (int i = 0; i < MAX_NODES; ++i) {
         entity->nodesRel[i] = {0.0f, 0.0f};
-    }// Create a surface for the entity shape
-SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA8888);
-if (!surface) {
-    printf("SDL_CreateSurface Error: %s\n", SDL_GetError());
-    return;
-}
+        entity->nodes[i] = {0.0f, 0.0f};
+    }
 
-// Get pixel format details
-const SDL_PixelFormatDetails* formatDetails = SDL_GetPixelFormatDetails(SDL_PIXELFORMAT_RGBA8888);
-if (!formatDetails) {
-    printf("SDL_GetPixelFormatDetails Error: %s\n", SDL_GetError());
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA8888);
+    if (!surface) {
+        printf("SDL_CreateSurface Error: %s\n", SDL_GetError());
+        return;
+    }
+    const SDL_PixelFormatDetails* formatDetails = SDL_GetPixelFormatDetails(SDL_PIXELFORMAT_RGBA8888);
+    if (!formatDetails) {
+        printf("SDL_GetPixelFormatDetails Error: %s\n", SDL_GetError());
+        SDL_DestroySurface(surface);
+        return;
+    }
+    Uint32 transparent = SDL_MapRGBA(formatDetails, nullptr, 0, 0, 0, 0);
+    SDL_FillSurfaceRect(surface, nullptr, transparent);
+    Uint32 colorValue = SDL_MapRGBA(formatDetails, nullptr, entity->color.r, entity->color.g, entity->color.b, entity->color.a);
+    if (shape == RECTANGLE) {
+        SDL_FillSurfaceRect(surface, nullptr, colorValue);
+    } else if (shape == CIRCLE) {
+        int radius = width / 2;
+        int cx = width / 2;
+        int cy = height / 2;
+        Uint32* pixels = (Uint32*)surface->pixels;
+        int pitch = surface->pitch / sizeof(Uint32);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                float dx = (x - cx) / (float)radius;
+                float dy = (y - cy) / (float)radius;
+                if (dx * dx + dy * dy <= 1.0f) {
+                    pixels[y * pitch + x] = colorValue;
+                }
+            }
+        }
+    } else if (shape == TRIANGLE) {
+        SDL_Point points[3] = {{width / 2, 0}, {0, height}, {width, height}};
+        Uint32* pixels = (Uint32*)surface->pixels;
+        int pitch = surface->pitch / sizeof(Uint32);
+        for (int y = 0; y < height; y++) {
+            float t = y / (float)height;
+            int x1 = (1 - t) * points[0].x + t * points[1].x;
+            int x2 = (1 - t) * points[0].x + t * points[2].x;
+            if (x1 > x2) std::swap(x1, x2);
+            for (int x = x1; x <= x2; x++) {
+                if (x >= 0 && x < width && y >= 0 && y < height) {
+                    pixels[y * pitch + x] = colorValue;
+                }
+            }
+        }
+    }
+    entity->texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (!entity->texture) {
+        printf("SDL_CreateTextureFromSurface Error: %s\n", SDL_GetError());
+    }
     SDL_DestroySurface(surface);
-    return;
+
+    generateNodes(entity);
+    printf("Initialized entity: shape=%d, x=%.2f, y=%.2f, width=%d, height=%d, isHandOrFoot=%d, nodes=%d, texture=%p\n",
+           shape, Xpos, Ypos, width, height, isHandOrFoot, entity->nodeCount, entity->texture);
 }
 
-// Fill surface with transparent background
-Uint32 transparent = SDL_MapRGBA(formatDetails, nullptr, 0, 0, 0, 0);
-SDL_FillSurfaceRect(surface, nullptr, transparent);
-
-// Draw shape on surface
-Uint32 colorValue = SDL_MapRGBA(formatDetails, nullptr, entity->color.r, entity->color.g, entity->color.b, entity->color.a);
-if (shape == RECTANGLE) {
-    SDL_FillSurfaceRect(surface, nullptr, colorValue);
-} else if (shape == CIRCLE) {
-    int radius = width / 2;
-    int cx = width / 2;
-    int cy = height / 2;
-    Uint32* pixels = (Uint32*)surface->pixels;
-    int pitch = surface->pitch / sizeof(Uint32);
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            float dx = (x - cx) / (float)radius;
-            float dy = (y - cy) / (float)radius;
-            if (dx * dx + dy * dy <= 1.0f) {
-                pixels[y * pitch + x] = colorValue;
-            }
-        }
-    }
-} else if (shape == TRIANGLE) {
-    // Define triangle vertices relative to center
-    SDL_Point points[3] = {
-        {width / 2, 0},           // Top
-        {0, height},              // Bottom-left
-        {width, height}           // Bottom-right
-    };
-    // Rasterize triangle using scanlines
-    Uint32* pixels = (Uint32*)surface->pixels;
-    int pitch = surface->pitch / sizeof(Uint32);
-    for (int y = 0; y < height; y++) {
-        float t = y / (float)height;
-        int x1 = (1 - t) * points[0].x + t * points[1].x;
-        int x2 = (1 - t) * points[0].x + t * points[2].x;
-        if (x1 > x2) std::swap(x1, x2);
-        for (int x = x1; x <= x2; x++) {
-            if (x >= 0 && x < width && y >= 0 && y < height) {
-                pixels[y * pitch + x] = colorValue;
-            }
-        }
-    }
-}
-
-// Convert surface to texture
-entity->texture = SDL_CreateTextureFromSurface(renderer, surface);
-if (!entity->texture) {
-    printf("SDL_CreateTextureFromSurface Error: %s\n", SDL_GetError());
-}
-SDL_DestroySurface(surface);
-
-printf("Initialized entity: shape=%d, x=%.2f, y=%.2f, width=%d, height=%d, isHandOrFoot=%d, texture=%p\n", 
-       shape, Xpos, Ypos, width, height, isHandOrFoot, entity->texture);}void drawFilledCircle(SDL_Renderer* renderer, int Xpos, int Ypos, int radius, SDL_Color color, float rotation) {
+void drawFilledCircle(SDL_Renderer* renderer, int Xpos, int Ypos, int radius, SDL_Color color, float rotation) {
     const int segments = 32;
     SDL_Vertex vertices[segments];
     float angleStep = 2.0f * M_PI / segments;for (int i = 0; i < segments; ++i) {
@@ -241,7 +248,10 @@ for (int i = 0; i < segments; ++i) {
 SDL_RenderGeometry(renderer, NULL, vertices, segments, indices, segments * 3);
 /*
 printf("Drawing circle at x=%d, y=%d, radius=%d with %d vertices\n", Xpos, Ypos, radius, segments);
-*/}void drawFilledTriangle(SDL_Renderer* renderer, SDL_Point p1, SDL_Point p2, SDL_Point p3, SDL_Color color, float rotation) {
+*/
+}
+
+void drawFilledTriangle(SDL_Renderer* renderer, SDL_Point p1, SDL_Point p2, SDL_Point p3, SDL_Color color, float rotation) {
     float cx = (p1.x + p2.x + p3.x) / 3.0f;
     float cy = (p1.y + p2.y + p3.y) / 3.0f;
     SDL_Vertex vertices[3];SDL_FPoint points[3] = {{(float)p1.x, (float)p1.y}, {(float)p2.x, (float)p2.y}, {(float)p3.x, (float)p3.y}};
@@ -254,7 +264,10 @@ for (int i = 0; i < 3; ++i) {
 }
 
 int indices[3] = {0, 1, 2};
-SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);}SDL_FPoint projectToSegment(SDL_FPoint p, SDL_FPoint v1, SDL_FPoint v2) {
+SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);
+}
+
+SDL_FPoint projectToSegment(SDL_FPoint p, SDL_FPoint v1, SDL_FPoint v2) {
     float dx = v2.x - v1.x;
     float dy = v2.y - v1.y;
     float lengthSquared = dx * dx + dy * dy;
@@ -265,11 +278,15 @@ SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);}SDL_FPoint projectT
     closest.x = v1.x + t * dx;
     closest.y = v1.y + t * dy;
     return closest;
-}float distanceSquared(SDL_FPoint p1, SDL_FPoint p2) {
+}
+
+float distanceSquared(SDL_FPoint p1, SDL_FPoint p2) {
     float dx = p2.x - p1.x;
     float dy = p2.y - p1.y;
     return dx * dx + dy * dy;
-}NodeRel clampRelativeNodeToShape(NodeRel rel, Entity* entity) {
+}
+
+NodeRel clampRelativeNodeToShape(NodeRel rel, Entity* entity) {
     NodeRel clamped = rel;
     if (entity->shapetype == RECTANGLE) {
         clamped.x_rel = std::clamp(rel.x_rel, -1.0f, 1.0f);
@@ -316,16 +333,19 @@ SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);}SDL_FPoint projectT
             }
         }
         clamped = absoluteToRelative(entity, projections[closestIdx].x, projections[closestIdx].y);
-        /*
         printf("Clamping triangle node: input x_rel=%.2f, y_rel=%.2f, clamped x_rel=%.2f, y_rel=%.2f\n",
-               rel.x_rel, rel.y_rel, clamped.x_rel, clamped.y_rel);*/
+               rel.x_rel, rel.y_rel, clamped.x_rel, clamped.y_rel);
     }
     return clamped;
-}SDL_FPoint clampNodeToShape(SDL_FPoint pt, Entity* entity) {
+}
+
+SDL_FPoint clampNodeToShape(SDL_FPoint pt, Entity* entity) {
     NodeRel rel = absoluteToRelative(entity, pt.x, pt.y);
     rel = clampRelativeNodeToShape(rel, entity);
     return relativeToAbsolute(entity, rel);
-}void switchShape(Entity* entity, Shape newShape) {
+}
+
+void switchShape(Entity* entity, Shape newShape) {
     entity->shapetype = newShape;
     if (newShape == RECTANGLE) {
         entity->width = 200;
@@ -344,14 +364,13 @@ SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);}SDL_FPoint projectT
         entity->nodes[i].y = abs.y;
     }
     updateAppendagePositions(entity);
-}bool isEntityOnGround(Entity* entity, float groundY = 700.0f) {
+}
+
+bool isEntityOnGround(Entity* entity, float groundY = 700.0f) {
     if (!entity->isHandOrFoot || entity->shapetype != RECTANGLE) return false;
-    // Calculate bottom point of the rectangle, accounting for rotation and parent position
     float hw = entity->width / 2.0f;
     float hh = entity->height / 2.0f;
-    SDL_FPoint corners[4] = {
-        {-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}
-    };
+    SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
     float bottomY = entity->Ypos;
     for (int i = 0; i < 4; ++i) {
         float rx = corners[i].x * cos(entity->rotation) - corners[i].y * sin(entity->rotation);
@@ -359,71 +378,111 @@ SDL_RenderGeometry(renderer, NULL, vertices, 3, indices, 3);}SDL_FPoint projectT
         float absY = entity->Ypos + ry;
         bottomY = std::max(bottomY, absY);
     }
-    bool onGround = bottomY >= groundY - 2.0f; // Increased tolerance
+    bool onGround = bottomY >= groundY - 5.0f; // Increased tolerance to 5.0f
     printf("Checking if entity is on ground: x=%.2f, y=%.2f, bottomY=%.2f, groundY=%.2f, rotation=%.2f, onGround=%d\n",
            entity->Xpos, entity->Ypos, bottomY, groundY, entity->rotation, onGround);
     return onGround;
-}void updateAppendagePositions(Entity* entity) {
+}
+
+void updateAppendagePositions(Entity* entity) {
+    if (!entity) {
+        printf("Error: updateAppendagePositions called with null entity\n");
+        return;
+    }
     generateNodes(entity);
     for (auto& app : entity->appendages) {
+        if (!app) {
+            printf("Error: null appendage in updateAppendagePositions\n");
+            continue;
+        }
         if (app->coreNodeIndex >= 0 && app->coreNodeIndex < entity->nodeCount) {
             float nodeX = entity->nodes[app->coreNodeIndex].x;
-            float nodeY = entity->nodes[app->coreNodeIndex].y;        // Calculate desired position
-        float desiredX = nodeX + app->offsetX * cos(app->rotation) - app->offsetY * sin(app->rotation);
-        float desiredY = nodeY + app->offsetX * sin(app->rotation) + app->offsetY * cos(app->rotation);
+            float nodeY = entity->nodes[app->coreNodeIndex].y;
+            // Use appendage's rotation, as in old version
+            float desiredX = nodeX + app->offsetX * cos(app->rotation) - app->offsetY * sin(app->rotation);
+            float desiredY = nodeY + app->offsetX * sin(app->rotation) + app->offsetY * cos(app->rotation);
 
-        if (app->isHandOrFoot && app->isLeg) {
-            // Clamp distance to core node
-            float dx = desiredX - nodeX;
-            float dy = desiredY - nodeY;
-            float distance = sqrt(dx * dx + dy * dy);
-            float maxDistance = 60.0f; // Max leg length
-            if (distance > maxDistance) {
-                float scale = maxDistance / distance;
-                desiredX = nodeX + dx * scale;
-                desiredY = nodeY + dy * scale;
+            if (app->isHandOrFoot && app->isLeg) {
+                // Keep new version's dynamic maxDistance and offset updates
+                float dx = desiredX - nodeX;
+                float dy = desiredY - nodeY;
+                float distance = sqrt(dx * dx + dy * dy);
+                float maxDistance = app->height / 2.0f + 10.0f; // Dynamic max distance
+                if (distance > maxDistance && distance > 0.0001f) {
+                    float scale = maxDistance / distance;
+                    desiredX = nodeX + dx * scale;
+                    desiredY = nodeY + dy * scale;
+                    // Update offsets to reflect constrained position
+                    float rot = -app->rotation; // Use appendage's rotation
+                    app->offsetX = (desiredX - nodeX) * cos(rot) - (desiredY - nodeY) * sin(rot);
+                    app->offsetY = (desiredX - nodeX) * sin(rot) + (desiredY - nodeY) * cos(rot);
+                }
             }
-        }
 
-        app->Xpos = desiredX;
-        app->Ypos = desiredY;
-        app->onGround = isEntityOnGround(app.get());
-        updateAppendagePositions(app.get());
-        printf("Updated appendage position: x=%.2f, y=%.2f, coreNode=%d, isHandOrFoot=%d, isLeg=%d, onGround=%d, parentX=%.2f, parentY=%.2f\n",
-               app->Xpos, app->Ypos, app->coreNodeIndex, app->isHandOrFoot, app->isLeg, app->onGround, entity->Xpos, entity->Ypos);
+            app->Xpos = desiredX;
+            app->Ypos = desiredY;
+            app->onGround = isEntityOnGround(app.get());
+            updateAppendagePositions(app.get());
+            printf("Updated appendage: x=%.2f, y=%.2f, coreNode=%d, isHandOrFoot=%d, isLeg=%d, onGround=%d, parentX=%.2f, parentY=%.2f, nodes=%d\n",
+                   app->Xpos, app->Ypos, app->coreNodeIndex, app->isHandOrFoot, app->isLeg, app->onGround,
+                   entity->Xpos, entity->Ypos, app->nodeCount);
+        } else {
+            printf("Invalid coreNodeIndex %d for appendage, nodeCount=%d\n",
+                   app->coreNodeIndex, entity->nodeCount);
+        }
     }
-}}bool addNodeToEntity(Entity* entity, float mouseX, float mouseY) {
-    if (entity->nodeCount < MAX_NODES && pointInEntityShape(mouseX, mouseY, entity)) {
-        NodeRel rel = absoluteToRelative(entity, mouseX, mouseY);
-        rel = clampRelativeNodeToShape(rel, entity);
-        SDL_FPoint abs = relativeToAbsolute(entity, rel);
-        if (pointInEntityShape(abs.x, abs.y, entity)) {
-            entity->nodesRel[entity->nodeCount] = rel;
-            entity->nodes[entity->nodeCount].x = abs.x;
-            entity->nodes[entity->nodeCount].y = abs.y;
-            entity->nodeCount++;
-            printf("Added node to entity at x=%.2f, y=%.2f\n", abs.x, abs.y);
-            return true;
-        } else {        //printf("Failed to add node: clamped point x=%.2f, y=%.2f not in entity shape\n", abs.x, abs.y);
+}
+
+bool addNodeToEntity(Entity* entity, float mouseX, float mouseY) {
+    if (!entity) {
+        printf("Error: addNodeToEntity called with null entity\n");
         return false;
     }
-} else {
-    //printf("Failed to add node: not in entity shape or node limit reached, x=%.2f, y=%.2f, nodeCount=%d\n",
-    //       mouseX, mouseY, entity->nodeCount);
-}
-for (auto& app : entity->appendages) {
-    if (addNodeToEntity(app.get(), mouseX, mouseY)) {
-        return true;
+    if (entity->nodeCount >= MAX_NODES) {
+        printf("Cannot add node: MAX_NODES (%d) reached\n", MAX_NODES);
+        return false;
     }
+    printf("Checking point in entity shape: x=%.2f, y=%.2f, entity x=%.2f, y=%.2f, shape=%d, rotation=%.2f\n",
+           mouseX, mouseY, entity->Xpos, entity->Ypos, entity->shapetype, entity->rotation);
+    if (!pointInEntityShape(mouseX, mouseY, entity)) {
+        printf("Failed to add node: not in entity shape, x=%.2f, y=%.2f\n", mouseX, mouseY);
+        for (auto& app : entity->appendages) {
+            if (addNodeToEntity(app.get(), mouseX, mouseY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    NodeRel rel = absoluteToRelative(entity, mouseX, mouseY);
+    rel = clampRelativeNodeToShape(rel, entity);
+    SDL_FPoint abs = relativeToAbsolute(entity, rel);
+    // Skip second pointInEntityShape check to avoid strictness
+    entity->nodesRel[entity->nodeCount] = rel;
+    entity->nodes[entity->nodeCount].x = abs.x;
+    entity->nodes[entity->nodeCount].y = abs.y;
+    entity->nodeCount++;
+    printf("Added node %d at x=%.2f, y=%.2f\n", entity->nodeCount - 1, abs.x, abs.y);
+    updateAppendagePositions(entity);
+    return true;
 }
-return false;}bool shouldRemoveAppendage(const std::unique_ptr<Entity>& entity) {
+
+bool shouldRemoveAppendage(const std::unique_ptr<Entity>& entity) {
     return entity && entity->coreNodeIndex == -1;
-}void removeNodeFromEntity(Entity* entity, float mouseX, float mouseY) {
+}
+
+void removeNodeFromEntity(Entity* entity, float mouseX, float mouseY) {
+    if (!entity) {
+        printf("Error: removeNodeFromEntity called with null entity\n");
+        return;
+    }
+    printf("Checking remove node: x=%.2f, y=%.2f, nodeCount=%d\n", mouseX, mouseY, entity->nodeCount);
     for (int i = 0; i < entity->nodeCount; i++) {
         float dx = mouseX - entity->nodes[i].x;
         float dy = mouseY - entity->nodes[i].y;
-        if (dx * dx + dy * dy <= 81) {
-            //printf("Removing node %d at x=%.2f, y=%.2f\n", i, entity->nodes[i].x, entity->nodes[i].y);
+        float distance = dx * dx + dy * dy;
+        printf("Node %d: x=%.2f, y=%.2f, distance=%.2f\n", i, entity->nodes[i].x, entity->nodes[i].y, distance);
+        if (distance <= 100.0f) { // Relaxed to 10 pixels
+            printf("Removing node %d at x=%.2f, y=%.2f\n", i, entity->nodes[i].x, entity->nodes[i].y);
             for (int j = i; j < entity->nodeCount - 1; ++j) {
                 entity->nodes[j] = entity->nodes[j + 1];
                 entity->nodesRel[j] = entity->nodesRel[j + 1];
@@ -439,13 +498,16 @@ return false;}bool shouldRemoveAppendage(const std::unique_ptr<Entity>& entity) 
             entity->appendages.erase(
                 std::remove_if(entity->appendages.begin(), entity->appendages.end(), shouldRemoveAppendage),
                 entity->appendages.end());
+            updateAppendagePositions(entity);
             return;
         }
     }
     for (auto& app : entity->appendages) {
         removeNodeFromEntity(app.get(), mouseX, mouseY);
     }
-}void collectEntityGeometry(Entity* entity, std::vector<RenderBatch>& batches) {
+}
+
+void collectEntityGeometry(Entity* entity, std::vector<RenderBatch>& batches) {
     RenderBatch* batch = nullptr;
     for (auto& b : batches) {
         if (b.shapeType == entity->shapetype) {
@@ -516,7 +578,9 @@ if (entity->shapetype == RECTANGLE) {
 
 for (auto& app : entity->appendages) {
     collectEntityGeometry(app.get(), batches);
-}}void destroyEntity(Entity* entity) {
+}}
+
+void destroyEntity(Entity* entity) {
     if (entity->texture) {
         SDL_DestroyTexture(entity->texture);
         entity->texture = nullptr;
@@ -525,15 +589,17 @@ for (auto& app : entity->appendages) {
         destroyEntity(app.get());
     }
     entity->appendages.clear();
-}void drawEntity(SDL_Renderer* renderer, Entity* entity) {
+}
+
+void drawEntity(SDL_Renderer* renderer, Entity* entity) {
     int Xpos = (int)entity->Xpos;
     int Ypos = (int)entity->Ypos;
     int width = entity->width;
     int height = entity->height;
     float rot = entity->rotation;
     SDL_Color color = entity->isHandOrFoot ? SDL_Color{255, 255, 0, 255} : entity->color; // Yellow for hands/feet
-    /*printf("Drawing entity: shape=%d, x=%d, y=%d, w=%d, h=%d, rotation=%.2f, isHandOrFoot=%d\n",
-           entity->shapetype, Xpos, Ypos, width, height, rot, entity->isHandOrFoot);*/
+    printf("Drawing entity: shape=%d, x=%d, y=%d, w=%d, h=%d, rotation=%.2f, isHandOrFoot=%d\n",
+           entity->shapetype, Xpos, Ypos, width, height, rot, entity->isHandOrFoot);
     if (entity->texture) {
         SDL_FRect dst = {entity->Xpos - entity->width / 2.0f, entity->Ypos - entity->height / 2.0f, 
                         (float)entity->width, (float)entity->height};
@@ -581,7 +647,9 @@ for (auto& app : entity->appendages) {
         }
     }
 }
-}void drawEntityWithNodesAndLines(SDL_Renderer* renderer, Entity* entity) {
+}
+
+void drawEntityWithNodesAndLines(SDL_Renderer* renderer, Entity* entity) {
     std::vector<RenderBatch> batches;
     collectEntityGeometry(entity, batches);for (const auto& batch : batches) {
     SDL_RenderGeometry(renderer, NULL, batch.vertices.data(), batch.vertices.size(),
@@ -606,9 +674,11 @@ for (auto& app : entity->appendages) {
         SDL_RenderLine(renderer, coreNode.x, coreNode.y, appEdge.x, appEdge.y);
         drawEntityWithNodesAndLines(renderer, app.get());
     }
-}}Entity* findAppendageAtPoint(Entity* entity, float px, float py) {
+}}
+
+Entity* findAppendageAtPoint(Entity* entity, float px, float py) {
     if (!entity->isCore && pointInEntityShape(px, py, entity)) {
-        //printf("Found appendage at x=%.2f, y=%.2f, isHandOrFoot=%d\n", px, py, entity->isHandOrFoot);
+        printf("Found appendage at x=%.2f, y=%.2f, isHandOrFoot=%d\n", px, py, entity->isHandOrFoot);
         return entity;
     }
     for (auto& app : entity->appendages) {
