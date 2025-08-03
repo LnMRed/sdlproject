@@ -53,6 +53,7 @@ private:
     Game* game_;
     Entity* player_; // Removed duplicate 'player'
     bool pressedTab_;
+    bool pressedSpace_;
     bool inventoryOpen_;
     bool shapeSelectedForAppendage_;
     bool movingLeft_;

@@ -7,6 +7,7 @@ InputManager::InputManager(Game* game)
     : game_(game),
       player_(game->getPlayer()), // Initialize player_ from game
       pressedTab_(false),
+      pressedSpace_(false),
       inventoryOpen_(false),
       shapeSelectedForAppendage_(false),
       movingLeft_(false),
@@ -70,14 +71,22 @@ void InputManager::handleKeyDownEvent(const SDL_KeyboardEvent& key)
         movingLeft_ = false;
         game_->logDebug("Moving right\n");
     }
-        if (key.key == SDLK_SPACE && !inventoryOpen_) {
+        if (key.key == SDLK_SPACE && !inventoryOpen_ && !pressedSpace_) {
         jumpRequested_ = true;
+        pressedSpace_ = true;
         game_->logDebug("Jump requested\n");
     }
 }
 
 void InputManager::handleKeyUpEvent(const SDL_KeyboardEvent& key)
 {
+    if(key.key == SDLK_SPACE) {
+        pressedSpace_ = false;
+        jumpRequested_ = false;
+        game_->logDebug("Jump cancelled\n");
+    } else if (key.key == SDLK_1 && inventoryOpen_) {
+        game_->logDebug("Node removal cancelled\n");
+    } else
     if (key.key == SDLK_TAB) {
         pressedTab_ = false;
         game_->logDebug("Tab key released\n");
@@ -104,9 +113,6 @@ void InputManager::handleMouseButtonDown(const SDL_MouseButtonEvent& button)
             if (currentMode_ != EditMode::HANDS_FEET && placingNode_) {
                 game_->logDebug("Attempting to add node at x=%.2f, y=%.2f\n", mouseX_, mouseY_);
                 addNodeToEntity(player_, mouseX_, mouseY_);
-                if (!addNodeToEntity(player_, mouseX_, mouseY_)) {
-                    game_->logDebug("Failed to add node to any entity at x=%.2f, y=%.2f\n", mouseX_, mouseY_);
-                }
                 placingNode_ = false;
                 game_->logDebug("Node placement attempted, placingNode reset\n");
             } else if (currentMode_ != EditMode::HANDS_FEET && removingNode_) {

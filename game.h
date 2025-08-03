@@ -25,7 +25,7 @@ public:
     static constexpr int MAX_APPENDAGES = 20;
     static constexpr Uint32 FRAME_DELAY = 1000 / 60;
     static constexpr float MOVE_SPEED = 5.0f;
-    static constexpr float GRAVITY = 0.5f;
+    static constexpr float GRAVITY = 0.3f;
     static constexpr float STEP_INTERVAL = 500.0f;
 
 private:

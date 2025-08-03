@@ -226,7 +226,7 @@ void initEntity(Entity* entity, SDL_Renderer* renderer, float Xpos, float Ypos, 
     }
     SDL_DestroySurface(surface);
 
-    generateNodes(entity);
+    //generateNodes(entity);
     printf("Initialized entity: shape=%d, x=%.2f, y=%.2f, width=%d, height=%d, isHandOrFoot=%d, nodes=%d, texture=%p\n",
            shape, Xpos, Ypos, width, height, isHandOrFoot, entity->nodeCount, entity->texture);
 }
@@ -351,15 +351,16 @@ SDL_FPoint clampNodeToShape(SDL_FPoint pt, Entity* entity) {
 void switchShape(Entity* entity, Shape newShape) {
     entity->shapetype = newShape;
     if (newShape == RECTANGLE) {
-        entity->width = 200;
-        entity->height = 200;
+        entity->width = 50;
+        entity->height = 50;
     } else if (newShape == CIRCLE) {
-        entity->width = 200;
-        entity->height = 200;
+        entity->width = 50;
+        entity->height = 50;
     } else if (newShape == TRIANGLE) {
-        entity->width = 150;
-        entity->height = 150;
+        entity->width = 50;
+        entity->height = 50;
     }
+    generateNodes(entity);
     for (int i = 0; i < entity->nodeCount; ++i) {
         entity->nodesRel[i] = clampRelativeNodeToShape(entity->nodesRel[i], entity);
         SDL_FPoint abs = relativeToAbsolute(entity, entity->nodesRel[i]);
@@ -387,12 +388,25 @@ bool isEntityOnGround(Entity* entity, float groundY = 700.0f) {
     return onGround;
 }
 
+void updateNodePositions(Entity* entity) {
+    for (int i = 0; i < entity->nodeCount; ++i) {
+        SDL_FPoint abs = relativeToAbsolute(entity, entity->nodesRel[i]);
+        entity->nodes[i].x = abs.x;
+        entity->nodes[i].y = abs.y;
+    }
+    // Also update for appendages recursively
+    for (auto& app : entity->appendages) {
+        updateNodePositions(app.get());
+    }
+}
+
 void updateAppendagePositions(Entity* entity) {
     if (!entity) {
         printf("Error: updateAppendagePositions called with null entity\n");
         return;
     }
-    generateNodes(entity);
+    //generateNodes(entity);
+    updateNodePositions(entity); 
     for (auto& app : entity->appendages) {
         if (!app) {
             printf("Error: null appendage in updateAppendagePositions\n");
@@ -447,26 +461,28 @@ bool addNodeToEntity(Entity* entity, float mouseX, float mouseY) {
     }
     printf("Checking point in entity shape: x=%.2f, y=%.2f, entity x=%.2f, y=%.2f, shape=%d, rotation=%.2f\n",
            mouseX, mouseY, entity->Xpos, entity->Ypos, entity->shapetype, entity->rotation);
-    if (!pointInEntityShape(mouseX, mouseY, entity)) {
-        printf("Failed to add node: not in entity shape, x=%.2f, y=%.2f\n", mouseX, mouseY);
-        for (auto& app : entity->appendages) {
-            if (addNodeToEntity(app.get(), mouseX, mouseY)) {
-                return true;
-            }
-        }
-        return false;
+
+    // FIX: Only add node if point is inside this entity
+    if (pointInEntityShape(mouseX, mouseY, entity)) {
+        NodeRel rel = absoluteToRelative(entity, mouseX, mouseY);
+        rel = clampRelativeNodeToShape(rel, entity);
+        SDL_FPoint abs = relativeToAbsolute(entity, rel);
+        entity->nodesRel[entity->nodeCount] = rel;
+        entity->nodes[entity->nodeCount].x = abs.x;
+        entity->nodes[entity->nodeCount].y = abs.y;
+        entity->nodeCount++;
+        printf("Added node %d at x=%.2f, y=%.2f\n", entity->nodeCount - 1, abs.x, abs.y);
+        updateAppendagePositions(entity);
+        return true;
     }
-    NodeRel rel = absoluteToRelative(entity, mouseX, mouseY);
-    rel = clampRelativeNodeToShape(rel, entity);
-    SDL_FPoint abs = relativeToAbsolute(entity, rel);
-    // Skip second pointInEntityShape check to avoid strictness
-    entity->nodesRel[entity->nodeCount] = rel;
-    entity->nodes[entity->nodeCount].x = abs.x;
-    entity->nodes[entity->nodeCount].y = abs.y;
-    entity->nodeCount++;
-    printf("Added node %d at x=%.2f, y=%.2f\n", entity->nodeCount - 1, abs.x, abs.y);
-    updateAppendagePositions(entity);
-    return true;
+
+    // Otherwise, try appendages
+    for (auto& app : entity->appendages) {
+        if (addNodeToEntity(app.get(), mouseX, mouseY)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool shouldRemoveAppendage(const std::unique_ptr<Entity>& entity) {
