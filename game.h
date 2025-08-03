@@ -45,7 +45,8 @@ private:
     void renderUI();
     void updateWalkingAnimation(Entity* entity);
     std::vector<Entity*> getFeet(Entity* entity);
-    float getLowestFootY(Entity* entity);
+    float getLowestEntityY(Entity* entity);
+    void getEntityMinMaxX(Entity* entity, float& minX, float& maxX);
 };
 
 #endif // GAME_H

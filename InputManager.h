@@ -35,6 +35,8 @@ public:
     bool getShapeSelectedForAppendage() const { return shapeSelectedForAppendage_; }
     bool getMovingLeft() const { return movingLeft_; }
     bool getMovingRight() const { return movingRight_; }
+    bool getJumpRequested() const { return jumpRequested_; };
+    void clearJumpRequested() { jumpRequested_ = false; }
     bool getIsRotating() const { return isRotating_; }
     float getMouseX() const { return mouseX_; }
     float getMouseY() const { return mouseY_; }
@@ -55,6 +57,8 @@ private:
     bool shapeSelectedForAppendage_;
     bool movingLeft_;
     bool movingRight_;
+    bool jumpRequested_;
+
     bool placingNode_;
     bool removingNode_;
     bool isRotating_;

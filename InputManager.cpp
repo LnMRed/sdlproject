@@ -11,6 +11,7 @@ InputManager::InputManager(Game* game)
       shapeSelectedForAppendage_(false),
       movingLeft_(false),
       movingRight_(false),
+      jumpRequested_(false),
       placingNode_(false),
       removingNode_(false),
       isRotating_(false),
@@ -59,7 +60,7 @@ void InputManager::handleKeyDownEvent(const SDL_KeyboardEvent& key)
         game_->logDebug("Inventory toggled: %s\n", inventoryOpen_ ? "open" : "closed");
     } else if (key.key == SDLK_1 && inventoryOpen_ && currentMode_ != EditMode::HANDS_FEET) {
         game_->logDebug("Attempting to remove node at x=%.2f, y=%.2f\n", mouseX_, mouseY_);
-        ::removeNodeFromEntity(player_, mouseX_, mouseY_);
+        removeNodeFromEntity(player_, mouseX_, mouseY_);
     } else if (key.key == SDLK_A && !inventoryOpen_) {
         movingLeft_ = true;
         movingRight_ = false;
@@ -68,6 +69,10 @@ void InputManager::handleKeyDownEvent(const SDL_KeyboardEvent& key)
         movingRight_ = true;
         movingLeft_ = false;
         game_->logDebug("Moving right\n");
+    }
+        if (key.key == SDLK_SPACE && !inventoryOpen_) {
+        jumpRequested_ = true;
+        game_->logDebug("Jump requested\n");
     }
 }
 
@@ -133,7 +138,7 @@ void InputManager::handleMouseButtonDown(const SDL_MouseButtonEvent& button)
                 }
             }
         }
-    } else if (button.button == SDL_BUTTON_RIGHT && inventoryOpen_ && !shapeSelectedForAppendage_ && !placingNode_ && !removingNode_ && currentMode_ != EditMode::HANDS_FEET) {
+    } else if (button.button == SDL_BUTTON_RIGHT && inventoryOpen_ && !shapeSelectedForAppendage_ && !placingNode_ && !removingNode_) {
         draggedAppendage_ = findAppendageAtPoint(player_, mouseX_, mouseY_);
         if (draggedAppendage_) {
             isRotating_ = true;
@@ -162,23 +167,27 @@ void InputManager::handleMouseButtonUp(const SDL_MouseButtonEvent& button)
 void InputManager::handleMouseMotion(const SDL_MouseMotionEvent& motion) {
     mouseX_ = motion.x;
     mouseY_ = motion.y;
-    if (draggedAppendage_) {
-        // Verify draggedAppendage_ is still valid
-        bool isValid = false;
-        for (const auto& appendage : player_->appendages) {
-            if (appendage.get() == draggedAppendage_) {
-                isValid = true;
-                break;
-            }
-        }
-        if (!isValid) {
-            draggedAppendage_ = nullptr;
+    if (draggedAppendage_ && inventoryOpen_) {
+        float nodeX = 0.0f, nodeY = 0.0f;
+        if (!game_->findParentNodePosition(draggedAppendage_, nodeX, nodeY)) {
+            game_->logDebug("Failed to find parent node for dragged appendage\n");
             return;
         }
-        // Update dragged appendage position
-        NodeRel rel = absoluteToRelative(player_, mouseX_, mouseY_);
-        draggedAppendage_->offsetX = rel.x_rel * player_->width;
-        draggedAppendage_->offsetY = rel.y_rel * player_->height;
+        if (motion.state & SDL_BUTTON_LMASK) {
+            float dx = mouseX_ - nodeX;
+            float dy = mouseY_ - nodeY;
+            draggedAppendage_->offsetX = dx * cos(-draggedAppendage_->rotation) - dy * sin(-draggedAppendage_->rotation);
+            draggedAppendage_->offsetY = dx * sin(-draggedAppendage_->rotation) + dy * cos(-draggedAppendage_->rotation);
+            updateAppendagePositions(player_);
+            game_->logDebug("Dragging appendage: offsetX=%.2f, offsetY=%.2f\n", draggedAppendage_->offsetX, draggedAppendage_->offsetY);
+        } else if (motion.state & SDL_BUTTON_RMASK && isRotating_) {
+            float initialAngle = game_->angleToPoint(nodeX, nodeY, dragStartX_, dragStartY_);
+            float newAngle = game_->angleToPoint(nodeX, nodeY, mouseX_, mouseY_);
+            draggedAppendage_->rotation = initialRotation_ + (newAngle - initialAngle);
+            updateAppendagePositions(player_);
+            game_->logDebug("Rotating appendage: initialAngle=%.2f, newAngle=%.2f, rotation=%.2f\n",
+                            initialAngle, newAngle, draggedAppendage_->rotation);
+        }
     }
 }
 

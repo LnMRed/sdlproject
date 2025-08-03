@@ -78,21 +78,38 @@ void Game::update() {
         player_.Ypos += player_.Yvel;
 
         // Handle ground collision
-        float lowestFootY = getLowestFootY(&player_);
-        if (lowestFootY >= SCREEN_HEIGHT) {
-            player_.Ypos -= (lowestFootY - SCREEN_HEIGHT);
+        float lowestY = getLowestEntityY(&player_);
+        if (lowestY >= SCREEN_HEIGHT) {
+            player_.Ypos -= (lowestY - SCREEN_HEIGHT);
             player_.Yvel = 0.0f;
             logDebug("Ground collision: adjusted player Ypos=%.2f, Yvel=0\n", player_.Ypos);
+        }
+
+        player_.Xpos += player_.Xvel;
+
+    // Clamp so the whole entity stays within the screen
+        float minX = std::numeric_limits<float>::max();
+        float maxX = std::numeric_limits<float>::lowest();
+        getEntityMinMaxX(&player_, minX, maxX);
+
+        if (minX < 0.0f) {
+            player_.Xpos -= minX; // Shift right so leftmost point is at 0
+        }
+        if (maxX > SCREEN_WIDTH) {
+            player_.Xpos -= (maxX - SCREEN_WIDTH); // Shift left so rightmost point is at screen edge
         }
     }
 
     // Handle movement
-    auto feet = getFeet(&player_);
+auto feet = getFeet(&player_);
+    int feetOnGround = 0;
     bool canMove = false;
+    bool canJump = false;
     for (auto* foot : feet) {
         if (foot->onGround) {
+            feetOnGround++;
             canMove = true;
-            break;
+            canJump = true;
         }
     }
     if (canMove && !inputManager_.getInventoryOpen()) {
@@ -106,6 +123,25 @@ void Game::update() {
     } else {
         player_.Xvel = 0.0f;
     }
+
+    // Jumping with foot count and directional boost
+    if (canJump && inputManager_.getJumpRequested() && feetOnGround > 0) {
+        float baseJumpStrength = 50.0f; // Lowered for more control, adjust as needed
+        float jumpStrength = baseJumpStrength + (feetOnGround - 1) * 50.0f; // Each extra foot adds more jump
+        player_.Yvel = -jumpStrength;
+
+        // Add X velocity boost if moving left or right at jump
+        if (inputManager_.getMovingLeft()) {
+            player_.Xvel = -MOVE_SPEED * 1.5f; // Stronger push if jumping left
+        } else if (inputManager_.getMovingRight()) {
+            player_.Xvel = MOVE_SPEED * 1.5f; // Stronger push if jumping right
+        }
+
+        inputManager_.clearJumpRequested();
+        logDebug("Jump! Yvel=%.2f, feetOnGround=%d, Xvel=%.2f\n", player_.Yvel, feetOnGround, player_.Xvel);
+    } else {
+        inputManager_.clearJumpRequested();
+    }
     player_.Xpos += player_.Xvel;
     player_.Xpos = std::max(0.0f, std::min(player_.Xpos, static_cast<float>(SCREEN_WIDTH)));
 
@@ -117,6 +153,24 @@ void Game::update() {
 
     logDebug("Updated player: x=%.2f, y=%.2f, Xvel=%.2f, Yvel=%.2f, canMove=%d\n",
              player_.Xpos, player_.Ypos, player_.Xvel, player_.Yvel, canMove);
+}
+
+void Game::getEntityMinMaxX(Entity* entity, float& minX, float& maxX) {
+    // Check all corners of this entity
+    float hw = entity->width / 2.0f;
+    float hh = entity->height / 2.0f;
+    SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
+    for (int i = 0; i < 4; ++i) {
+        float rx = corners[i].x * cos(entity->rotation) - corners[i].y * sin(entity->rotation);
+        float ry = corners[i].x * sin(entity->rotation) + corners[i].y * cos(entity->rotation);
+        float absX = entity->Xpos + rx;
+        if (absX < minX) minX = absX;
+        if (absX > maxX) maxX = absX;
+    }
+    // Recursively check appendages
+    for (auto& app : entity->appendages) {
+        getEntityMinMaxX(app.get(), minX, maxX);
+    }
 }
 
 void Game::logDebug(const char* format, ...) const {
@@ -181,21 +235,23 @@ std::vector<Entity*> Game::getFeet(Entity* entity) {
     return feet;
 }
 
-float Game::getLowestFootY(Entity* entity) {
-    auto feet = getFeet(entity);
-    float lowestY = SCREEN_HEIGHT;
-    for (auto* foot : feet) {
-        float hw = foot->width / 2.0f;
-        float hh = foot->height / 2.0f;
-        SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
-        for (int i = 0; i < 4; ++i) {
-            float rx = corners[i].x * cos(foot->rotation) - corners[i].y * sin(foot->rotation);
-            float ry = corners[i].x * sin(foot->rotation) + corners[i].y * cos(foot->rotation);
-            float absY = foot->Ypos + ry;
-            lowestY = std::max(lowestY, absY);
-        }
+float Game::getLowestEntityY(Entity* entity) {
+    float lowestY = entity->Ypos + entity->height / 2.0f;
+    // Check all corners of this entity
+    float hw = entity->width / 2.0f;
+    float hh = entity->height / 2.0f;
+    SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
+    for (int i = 0; i < 4; ++i) {
+        float rx = corners[i].x * cos(entity->rotation) - corners[i].y * sin(entity->rotation);
+        float ry = corners[i].x * sin(entity->rotation) + corners[i].y * cos(entity->rotation);
+        float absY = entity->Ypos + ry;
+        if (absY > lowestY) lowestY = absY;
     }
-    logDebug("Lowest foot Y: %.2f\n", lowestY);
+    // Recursively check appendages
+    for (auto& app : entity->appendages) {
+        float appLowest = getLowestEntityY(app.get());
+        if (appLowest > lowestY) lowestY = appLowest;
+    }
     return lowestY;
 }
 

@@ -18,12 +18,13 @@ NodeRel absoluteToRelative(Entity* entity, float abs_x, float abs_y) {
     float ry = dx * sin(rot) + dy * cos(rot);
     rel.x_rel = rx / (entity->width / 2.0f);
     rel.y_rel = ry / (entity->height / 2.0f);
-    /*
+    
     printf("Absolute to relative: abs_x=%.2f, abs_y=%.2f, entity=(%.2f, %.2f), rotation=%.2f, x_rel=%.2f, y_rel=%.2f\n",
            abs_x, abs_y, cx, cy, entity->rotation, rel.x_rel, rel.y_rel);
-    */
+    
     return rel;
 }
+
 SDL_FPoint relativeToAbsolute(Entity* entity, NodeRel nodeRel) {
     SDL_FPoint abs;
     float rx = nodeRel.x_rel * (entity->width / 2.0f);
@@ -31,12 +32,13 @@ SDL_FPoint relativeToAbsolute(Entity* entity, NodeRel nodeRel) {
     float rot = entity->rotation;
     abs.x = entity->Xpos + rx * cos(rot) - ry * sin(rot);
     abs.y = entity->Ypos + rx * sin(rot) + ry * cos(rot);
-    /*
+    
     printf("Relative to absolute: x_rel=%.2f, y_rel=%.2f, entity=(%.2f, %.2f), rotation=%.2f, abs_x=%.2f, abs_y=%.2f\n",
            nodeRel.x_rel, nodeRel.y_rel, entity->Xpos, entity->Ypos, rot, abs.x, abs.y);
-    */
+    
     return abs;
 }
+
 bool pointInRectangle(float px, float py, Entity* entity) {
     float cx = entity->Xpos;
     float cy = entity->Ypos;
@@ -93,6 +95,7 @@ bool pointInTriangle(float px, float py, Entity* entity) {
            px, py, cx, cy, s, rot, a, b, c, inside);
     return inside;
 }
+
 bool pointInEntityShape(float px, float py, Entity* entity) {
     bool result = false;
     switch (entity->shapetype) {
