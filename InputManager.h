@@ -29,6 +29,7 @@ public:
     };
 
     // Getters for input state
+    bool isLeftMouseHeld() const { return leftMouseHeld_; }
     bool getInventoryOpen() const { return inventoryOpen_; }
     bool getPlacingNode() const { return placingNode_; }
     bool getRemovingNode() const { return removingNode_; }
@@ -50,6 +51,8 @@ public:
     const ShapeButton& getRemoveNodeButton() const { return removeNodeBtn_; }
 
 private:
+
+    bool leftMouseHeld_ = false;
     Game* game_;
     Entity* player_; // Removed duplicate 'player'
     bool pressedTab_;
@@ -81,7 +84,6 @@ private:
     void handleMouseButtonUp(const SDL_MouseButtonEvent& button);
     void handleMouseMotion(const SDL_MouseMotionEvent& motion);
     bool handleButtonClick(float x, float y);
-    void setHandsGrabbing(Entity* entity, bool grabbing);
 };
 
 #endif // INPUT_MANAGER_H

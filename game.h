@@ -4,6 +4,7 @@
 #include <vector>
 #include "entity.h"
 #include "InputManager.h"
+#include "Renderer.h"
 
 class Game {
 public:
@@ -14,7 +15,7 @@ public:
     void logDebug(const char* format, ...) const;
 
     Entity* getPlayer() { return &player_; }
-    InputManager& getInputManager() { return inputManager_; } // Added getter for InputManager
+    InputManager& getInputManager() { return inputManager_; }
 
     bool findParentNodePosition(Entity* appendage, float& nodeX, float& nodeY);
     float angleToPoint(float x1, float y1, float x2, float y2) const;
@@ -30,7 +31,8 @@ public:
 
 private:
     SDL_Window* window_;
-    SDL_Renderer* renderer_;
+    SDL_Renderer* sdl_renderer_;
+    Renderer renderer_;
     InputManager inputManager_;
     Entity player_;
     bool debug_;
@@ -38,7 +40,6 @@ private:
     int currentStepFoot_;
     float walkCycle_;
     Uint32 lastFrameTime_;
-
     
     std::vector<Entity*> grabbableEntities_;
     Entity grabbableBall_; 

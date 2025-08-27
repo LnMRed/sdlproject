@@ -9,9 +9,9 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-
 Game::Game()
     : window_(nullptr),
+      sdl_renderer_(nullptr),
       renderer_(nullptr),
       inputManager_(this),
       debug_(false),
@@ -20,19 +20,16 @@ Game::Game()
       walkCycle_(0.0f),
       lastFrameTime_(0)
 {
-
 }
 
-
-// Create renderer with default driver (chooses hardware-accelerated renderer)
 Game::~Game() {
     destroyEntity(&player_);
-    if (renderer_) SDL_DestroyRenderer(renderer_);
+    destroyEntity(&grabbableBall_);
+    if (sdl_renderer_) SDL_DestroyRenderer(sdl_renderer_);
     if (window_) SDL_DestroyWindow(window_);
     SDL_Quit();
 }
 
-// Enable V-Sync
 bool Game::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         printf("SDL_Init Error: %s\n", SDL_GetError());
@@ -44,84 +41,117 @@ bool Game::init() {
         SDL_Quit();
         return false;
     }
-    renderer_ = SDL_CreateRenderer(window_, nullptr);
-    if (!renderer_) {
+    sdl_renderer_ = SDL_CreateRenderer(window_, nullptr);
+    if (!sdl_renderer_) {
         printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
         SDL_DestroyWindow(window_);
         SDL_Quit();
         return false;
     }
-    if (!SDL_SetRenderVSync(renderer_, true)) {
+    if (!SDL_SetRenderVSync(sdl_renderer_, true)) {
         printf("SDL_SetRenderVSync Warning: %s\n", SDL_GetError());
     }
+    renderer_ = Renderer(sdl_renderer_);
 
-        // Initialize player_ with default values
-    initEntity(&player_, renderer_, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, 50, 50, Shape::TRIANGLE, {255, 0, 0, 255}, 50, false);
+    initEntity(&player_, &renderer_, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 50, 50, Shape::TRIANGLE, {255, 0, 0, 255}, 50, false, true);
     player_.isCore = true;
-    // Update player_ texture with renderer
-    if (player_.texture) {
-        SDL_DestroyTexture(player_.texture);
-    }
     
-
     if (player_.texture) {
-        SDL_SetTextureScaleMode(player_.texture, SDL_SCALEMODE_LINEAR);
+        renderer_.setTextureScaleMode(player_.texture, SDL_SCALEMODE_LINEAR);
     }
 
     float ballX = SCREEN_WIDTH - 60;
-    float ballY = SCREEN_HEIGHT - 60;
+    float ballY = SCREEN_HEIGHT - 100; // Adjusted to start higher for visibility
     int ballRadius = 30;
-    initEntity(&grabbableBall_, renderer_, ballX, ballY, ballRadius * 2, ballRadius * 2, Shape::CIRCLE, {0, 200, 255, 255}, ballRadius * 2, false);
+    initEntity(&grabbableBall_, &renderer_, ballX, ballY, ballRadius * 2, ballRadius * 2, Shape::CIRCLE, {0, 200, 255, 255}, ballRadius * 2, false, false);
     grabbableBall_.isCore = false;
     grabbableBall_.Xvel = 0.0f;
     grabbableBall_.Yvel = 0.0f;
 
-    // Add to grabbable entities list
     grabbableEntities_.push_back(&grabbableBall_);
 
     logDebug("Player initialized at x=%.2f, y=%.2f, texture=%p\n", player_.Xpos, player_.Ypos, player_.texture);
+    logDebug("Grabbable ball initialized at x=%.2f, y=%.2f, nodeCount=%d\n", grabbableBall_.Xpos, grabbableBall_.Ypos, grabbableBall_.nodeCount);
     return true;
 }
 
 void Game::updateHands(Entity* entity) {
-    for (auto& app : entity->appendages) {
-        if (app->isHandOrFoot && app->shapetype == TRIANGLE && !inputManager_.getInventoryOpen()) {
-    float nodeX = 0.0f, nodeY = 0.0f;
-    if (findParentNodePosition(app.get(), nodeX, nodeY)) {
-        float dx = inputManager_.getMouseX() - nodeX;
-        float dy = inputManager_.getMouseY() - nodeY;
-        float dist = std::sqrt(dx * dx + dy * dy);
-        float maxArmLength = 120.0f;
-        if (dist > maxArmLength) {
-            dx *= maxArmLength / dist;
-            dy *= maxArmLength / dist;
-        }
-        // If just started grabbing, snap offset to mouse
-        static bool wasGrabbing = false;
-        if (app->grabbing && !wasGrabbing) {
-            app->offsetX = dx;
-            app->offsetY = dy;
-        }
-        wasGrabbing = app->grabbing;
+    // Use InputManager’s tracked state instead of SDL_GetMouseState
+    bool isLeftMouseDown = inputManager_.isLeftMouseHeld();
 
-        float handLerp = std::clamp(dist / 60.0f, 0.15f, 0.7f);
-        app->offsetX += (dx - app->offsetX) * handLerp;
-        app->offsetY += (dy - app->offsetY) * handLerp;
-        app->rotation = std::atan2(dy, dx);
+    for (auto& app : entity->appendages) {
+        if (app->isHandOrFoot && app->shapetype == Shape::TRIANGLE && !inputManager_.getInventoryOpen()) {
+            float nodeX = 0.0f, nodeY = 0.0f;
+            if (findParentNodePosition(app.get(), nodeX, nodeY)) {
+                float dx = inputManager_.getMouseX() - nodeX;
+                float dy = inputManager_.getMouseY() - nodeY;
+                float dist = std::sqrt(dx * dx + dy * dy);
+
+                // Clamp arm length
+                float maxArmLength = 120.0f;
+                if (dist > maxArmLength) {
+                    dx *= maxArmLength / dist;
+                    dy *= maxArmLength / dist;
+                }
+
+                bool wasGrabbing = app->grabbing;
+                app->grabbing = isLeftMouseDown;  // follow InputManager state
+
+                if (!app->grabbing && app->grabbedObject) {
+                    // Release immediately on mouse up
+                    app->grabbedObject = nullptr;
+                    logDebug("Released grabbed object\n");
+                }
+                else if (app->grabbing && !wasGrabbing) {
+                    // Just started grabbing
+                    app->offsetX = dx;
+                    app->offsetY = dy;
+
+                    float handX = nodeX + app->offsetX;
+                    float handY = nodeY + app->offsetY;
+
+                    app->grabbedObject = getGrabbableAt(handX, handY, 15.0f);
+                    if (app->grabbedObject) {
+                        logDebug("Hand at (%.2f, %.2f) grabbed object at (%.2f, %.2f)\n",
+                                 handX, handY,
+                                 app->grabbedObject->Xpos, app->grabbedObject->Ypos);
+                    }
+                }
+
+                // Smooth movement interpolation
+                float handLerp = std::clamp(dist / 60.0f, 0.15f, 0.7f);
+                app->offsetX += (dx - app->offsetX) * handLerp;
+                app->offsetY += (dy - app->offsetY) * handLerp;
+                app->rotation = std::atan2(dy, dx);
+
+                // While grabbing, drag object along with hand
+                if (app->grabbing && app->grabbedObject) {
+                    app->grabbedObject->Xpos = nodeX + app->offsetX;
+                    app->grabbedObject->Ypos = nodeY + app->offsetY;
+                    app->grabbedObject->Xvel = 0.0f;
+                    app->grabbedObject->Yvel = 0.0f;
+                    logDebug("Grabbed object moved to (%.2f, %.2f)\n",
+                             app->grabbedObject->Xpos, app->grabbedObject->Ypos);
+                }
+            }
         }
+        else if (app->grabbedObject && !app->grabbing) {
+            // Safety release (in case branch above didn’t catch it)
+            app->grabbedObject = nullptr;
+            logDebug("Released grabbed object (safety)\n");
         }
+        // Recurse into appendages
         updateHands(app.get());
     }
 }
 
-Entity* Game::getGrabbableAt(float x, float y, float tolerance = 15.0f) {
-    // Check the floor (y ≈ 700)
+
+
+Entity* Game::getGrabbableAt(float x, float y, float tolerance) {
     if (std::abs(y - 700.0f) < tolerance) {
-        return nullptr; // nullptr means the floor
+        return nullptr;
     }
-    // Example: check for other grabbable entities (weapons, etc.)
     for (Entity* obj : grabbableEntities_) {
-        // You can use bounding box, circle, or custom logic
         float dx = x - obj->Xpos;
         float dy = y - obj->Ypos;
         float dist = std::sqrt(dx * dx + dy * dy);
@@ -134,152 +164,129 @@ Entity* Game::getGrabbableAt(float x, float y, float tolerance = 15.0f) {
 
 void Game::update() {
     if (!inputManager_.getInventoryOpen()) {
-        // Apply gravity to core entity (fixed: removed double GRAVITY)
+        // Update player
         player_.Yvel += GRAVITY;
         player_.Ypos += player_.Yvel;
 
-        // Handle ground collision
         float lowestY = getLowestEntityY(&player_);
         if (lowestY >= SCREEN_HEIGHT) {
             player_.Ypos -= (lowestY - SCREEN_HEIGHT);
             player_.Yvel = 0.0f;
+            player_.onGround = true;
             logDebug("Ground collision: adjusted player Ypos=%.2f, Yvel=0\n", player_.Ypos);
+        } else {
+            player_.onGround = false;
         }
 
         player_.Xpos += player_.Xvel;
 
-    // Clamp so the whole entity stays within the screen
         float minX = std::numeric_limits<float>::max();
         float maxX = std::numeric_limits<float>::lowest();
         getEntityMinMaxX(&player_, minX, maxX);
 
         if (minX < 0.0f) {
-            player_.Xpos -= minX; // Shift right so leftmost point is at 0
+            player_.Xpos -= minX;
         }
         if (maxX > SCREEN_WIDTH) {
-            player_.Xpos -= (maxX - SCREEN_WIDTH); // Shift left so rightmost point is at screen edge
+            player_.Xpos -= (maxX - SCREEN_WIDTH);
         }
 
-        grabbableBall_.Yvel += GRAVITY;
-        grabbableBall_.Ypos += grabbableBall_.Yvel;
-
-        // Simple floor collision for the ball
-        float ballBottom = grabbableBall_.Ypos + grabbableBall_.height / 2.0f;
-        if (ballBottom >= SCREEN_HEIGHT) {
-            grabbableBall_.Ypos -= (ballBottom - SCREEN_HEIGHT);
-            grabbableBall_.Yvel = 0.0f;
+        // Update grabbable ball (if not grabbed)
+        bool isBallGrabbed = false;
+        for (auto& app : player_.appendages) {
+            if (app->grabbedObject == &grabbableBall_) {
+                isBallGrabbed = true;
+                break;
+            }
+        }
+        if (!isBallGrabbed) {
+            grabbableBall_.Yvel += GRAVITY;
+            grabbableBall_.Ypos += grabbableBall_.Yvel;
+            if (grabbableBall_.Ypos + grabbableBall_.height / 2.0f >= SCREEN_HEIGHT) {
+                grabbableBall_.Ypos = SCREEN_HEIGHT - grabbableBall_.height / 2.0f;
+                grabbableBall_.Yvel = 0.0f;
+                grabbableBall_.onGround = true;
+                logDebug("Ball ground collision: Ypos=%.2f, Yvel=0\n", grabbableBall_.Ypos);
+            } else {
+                grabbableBall_.onGround = false;
+            }
         }
     }
 
-    // Handle movement
-auto feet = getFeet(&player_);
-    int feetOnGround = 0;
-    bool canMove = true;
-    bool canJump = false;
-    for (auto* foot : feet) {
-        if (foot->onGround) {
-            feetOnGround++;
-            canJump = true;
-        }
-    }
-    if (canMove && !inputManager_.getInventoryOpen()) {
-        if (inputManager_.getMovingLeft()) {
-            player_.Xvel = -MOVE_SPEED;
-        } else if (inputManager_.getMovingRight()) {
-            player_.Xvel = MOVE_SPEED;
-        } else {
-            player_.Xvel = 0.0f;
-        }
+    if (inputManager_.getMovingLeft() && !inputManager_.getInventoryOpen()) {
+        player_.Xvel = -MOVE_SPEED;
+    } else if (inputManager_.getMovingRight() && !inputManager_.getInventoryOpen()) {
+        player_.Xvel = MOVE_SPEED;
     } else {
         player_.Xvel = 0.0f;
     }
 
-    // Jumping with foot count and directional boost
-    if (canJump && inputManager_.getJumpRequested() && feetOnGround > 0) {
-        float baseJumpStrength = 50.0f; // Lowered for more control, adjust as needed
-        float jumpStrength = baseJumpStrength + (feetOnGround - 1) * 50.0f; // Each extra foot adds more jump
-        player_.Yvel = -jumpStrength;
-
-        // Add X velocity boost if moving left or right at jump
-        if (inputManager_.getMovingLeft()) {
-            player_.Xvel = -MOVE_SPEED * 1.5f; // Stronger push if jumping left
-        } else if (inputManager_.getMovingRight()) {
-            player_.Xvel = MOVE_SPEED * 1.5f; // Stronger push if jumping right
-        }
-
+    if (inputManager_.getJumpRequested() && player_.onGround && !inputManager_.getInventoryOpen()) {
+        player_.Yvel = -10.0f;
+        player_.onGround = false;
         inputManager_.clearJumpRequested();
-        logDebug("Jump! Yvel=%.2f, feetOnGround=%d, Xvel=%.2f\n", player_.Yvel, feetOnGround, player_.Xvel);
-    } else {
-        inputManager_.clearJumpRequested();
+        logDebug("Jump initiated: Yvel=%.2f\n", player_.Yvel);
     }
-    player_.Xpos += player_.Xvel;
-    player_.Xpos = std::max(0.0f, std::min(player_.Xpos, static_cast<float>(SCREEN_WIDTH)));
 
-    // Update walking animation for feet (if moving)
-    updateWalkingAnimation(&player_);
+    if (std::abs(player_.Xvel) > 0.0f && player_.onGround) {
+        updateWalkingAnimation(&player_);
+    } else {
+        walkCycle_ = 0.0f;
+    }
 
-    // Update all appendage positions to follow the core entity
+    updateNodePositions(&player_);
     updateAppendagePositions(&player_);
     updateHands(&player_);
-for (auto& app : player_.appendages) {
-    if (app->isHandOrFoot && app->shapetype == TRIANGLE && app->grabbing) {
-        float nodeX = 0.0f, nodeY = 0.0f;
-        if (findParentNodePosition(app.get(), nodeX, nodeY)) {
-            float handTipX = nodeX + app->offsetX;
-            float handTipY = nodeY + app->offsetY;
+}
 
-            // Only set grabbedObject when grab starts
-            if (app->grabbedObject == nullptr) {
-                app->grabbedObject = getGrabbableAt(handTipX, handTipY);
-            }
-
-            // If grabbing the floor
-            if (app->grabbedObject == nullptr && std::abs(handTipY - 700.0f) < 15.0f) {
-                // Move player by mouse delta
-                static float lastMouseX = inputManager_.getMouseX();
-                static float lastMouseY = inputManager_.getMouseY();
-                float mouseDX = inputManager_.getMouseX() - lastMouseX;
-                float mouseDY = inputManager_.getMouseY() - lastMouseY;
-                player_.Xpos += mouseDX;
-                player_.Ypos += mouseDY;
-                player_.Yvel = 0.0f;
-                lastMouseX = inputManager_.getMouseX();
-                lastMouseY = inputManager_.getMouseY();
-            }
-            // If grabbing an object
-            else if (app->grabbedObject != nullptr) {
-                float springStrength = 0.5f;
-                float dx = handTipX - app->grabbedObject->Xpos;
-                float dy = handTipY - app->grabbedObject->Ypos;
-                app->grabbedObject->Xvel += dx * springStrength;
-                app->grabbedObject->Yvel += dy * springStrength;
-                app->grabbedObject->Xpos += app->grabbedObject->Xvel;
-                app->grabbedObject->Ypos += app->grabbedObject->Yvel;
-                // Optionally dampen velocity:
-                app->grabbedObject->Xvel *= 0.7f;
-                app->grabbedObject->Yvel *= 0.7f;
-            }
+void Game::updateWalkingAnimation(Entity* entity) {
+    Uint32 currentTime = SDL_GetTicks();
+    if (currentTime - lastStepTime_ >= STEP_INTERVAL) {
+        std::vector<Entity*> feet = getFeet(entity);
+        if (!feet.empty()) {
+            Entity* foot = feet[currentStepFoot_ % feet.size()];
+            foot->rotation = sin(walkCycle_) * 0.2f;
+            walkCycle_ += 0.1f;
+            currentStepFoot_ = (currentStepFoot_ + 1) % feet.size();
+            lastStepTime_ = currentTime;
         }
-    } else {
-        // If not grabbing, clear grabbedObject
-        app->grabbedObject = nullptr;
     }
 }
+
+std::vector<Entity*> Game::getFeet(Entity* entity) {
+    std::vector<Entity*> feet;
+    for (auto& app : entity->appendages) {
+        if (app->isHandOrFoot && app->isLeg) {
+            feet.push_back(app.get());
+        }
+        auto subFeet = getFeet(app.get());
+        feet.insert(feet.end(), subFeet.begin(), subFeet.end());
+    }
+    return feet;
+}
+
+float Game::getLowestEntityY(Entity* entity) {
+    float lowestY = entity->Ypos + entity->height / 2.0f;
+    for (auto& app : entity->appendages) {
+        lowestY = std::max(lowestY, getLowestEntityY(app.get()));
+    }
+    return lowestY;
 }
 
 void Game::getEntityMinMaxX(Entity* entity, float& minX, float& maxX) {
-    // Check all corners of this entity
     float hw = entity->width / 2.0f;
-    float hh = entity->height / 2.0f;
-    SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
+    float cx = entity->Xpos;
+    float cy = entity->Ypos;
+    float rot = entity->rotation;
+    SDL_FPoint points[4] = {
+        {-hw, -hw}, {hw, -hw}, {hw, hw}, {-hw, hw}
+    };
     for (int i = 0; i < 4; ++i) {
-        float rx = corners[i].x * cos(entity->rotation) - corners[i].y * sin(entity->rotation);
-        float ry = corners[i].x * sin(entity->rotation) + corners[i].y * cos(entity->rotation);
-        float absX = entity->Xpos + rx;
-        if (absX < minX) minX = absX;
-        if (absX > maxX) maxX = absX;
+        float rx = points[i].x * cos(rot) - points[i].y * sin(rot);
+        float x = cx + rx;
+        minX = std::min(minX, x);
+        maxX = std::max(maxX, x);
     }
-    // Recursively check appendages
     for (auto& app : entity->appendages) {
         getEntityMinMaxX(app.get(), minX, maxX);
     }
@@ -293,140 +300,52 @@ void Game::logDebug(const char* format, ...) const {
     va_end(args);
 }
 
-float Game::distanceSquared(float x1, float y1, float x2, float y2) const {
-    float dx = x2 - x1;
-    float dy = y2 - y1;
-    return dx * dx + dy * dy;
+bool Game::findParentNodePosition(Entity* appendage, float& nodeX, float& nodeY) {
+    if (!appendage || appendage->isCore || appendage->coreNodeIndex < 0) {
+        return false;
+    }
+    Entity* parent = &player_;
+    for (auto& app : parent->appendages) {
+        if (app.get() == appendage) {
+            if (appendage->coreNodeIndex < parent->nodeCount) {
+                nodeX = parent->nodes[appendage->coreNodeIndex].x;
+                nodeY = parent->nodes[appendage->coreNodeIndex].y;
+                return true;
+            }
+            return false;
+        }
+        for (auto& subApp : app->appendages) {
+            if (subApp.get() == appendage) {
+                if (appendage->coreNodeIndex < app->nodeCount) {
+                    nodeX = app->nodes[appendage->coreNodeIndex].x;
+                    nodeY = app->nodes[appendage->coreNodeIndex].y;
+                    return true;
+                }
+                return false;
+            }
+        }
+    }
+    return false;
 }
 
 float Game::angleToPoint(float x1, float y1, float x2, float y2) const {
     return atan2(y2 - y1, x2 - x1);
 }
 
-bool Game::findParentNodePosition(Entity* appendage, float& nodeX, float& nodeY) {
-    if (!appendage) return false;
-    auto search = [&](Entity* entity, auto& self) -> bool {
-        if (!entity) return false;
-        for (auto& app : entity->appendages) {
-            if (app.get() == appendage) {
-                if (app->coreNodeIndex >= 0 && app->coreNodeIndex < entity->nodeCount) {
-                    nodeX = entity->nodes[app->coreNodeIndex].x;
-                    nodeY = entity->nodes[app->coreNodeIndex].y;
-                    return true;
-                }
-                return false;
-            }
-            if (self(app.get(), self)) return true;
-        }
-        return false;
-    };
-    bool found = search(&player_, search);
-    logDebug("findParentNodePosition: appendage=%p, found=%d, nodeX=%.2f, nodeY=%.2f\n", appendage, found, nodeX, nodeY);
-    return found;
+float Game::distanceSquared(float x1, float y1, float x2, float y2) const {
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    return dx * dx + dy * dy;
 }
-
-std::vector<Entity*> Game::getFeet(Entity* entity) {
-    std::vector<Entity*> feet;
-    for (auto& app : entity->appendages) {
-        if (app->isHandOrFoot && app->shapetype == RECTANGLE) {
-            feet.push_back(app.get());
-        }
-        auto subFeet = getFeet(app.get());
-        feet.insert(feet.end(), subFeet.begin(), subFeet.end());
-    }
-    // Sort by bottom Y-position
-    std::sort(feet.begin(), feet.end(), [](Entity* a, Entity* b) {
-        float aBottom = a->Ypos + a->height / 2.0f * cos(a->rotation);
-        float bBottom = b->Ypos + b->height / 2.0f * cos(b->rotation);
-        return aBottom > bBottom;
-    });
-    if (feet.size() > 2) feet.resize(2);
-    for (size_t i = 0; i < feet.size(); ++i) {
-        logDebug("Foot %zu: x=%.2f, y=%.2f, onGround=%d\n", i, feet[i]->Xpos, feet[i]->Ypos, feet[i]->onGround);
-    }
-    return feet;
-}
-
-float Game::getLowestEntityY(Entity* entity) {
-    float lowestY = entity->Ypos + entity->height / 2.0f;
-    // Check all corners of this entity
-    float hw = entity->width / 2.0f;
-    float hh = entity->height / 2.0f;
-    SDL_FPoint corners[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
-    for (int i = 0; i < 4; ++i) {
-        float rx = corners[i].x * cos(entity->rotation) - corners[i].y * sin(entity->rotation);
-        float ry = corners[i].x * sin(entity->rotation) + corners[i].y * cos(entity->rotation);
-        float absY = entity->Ypos + ry;
-        if (absY > lowestY) lowestY = absY;
-    }
-    // Recursively check appendages
-    for (auto& app : entity->appendages) {
-        float appLowest = getLowestEntityY(app.get());
-        if (appLowest > lowestY) lowestY = appLowest;
-    }
-    return lowestY;
-}
-
-void Game::updateWalkingAnimation(Entity* entity) {
-    auto feet = getFeet(entity);
-    if (feet.empty() || (!inputManager_.getMovingLeft() && !inputManager_.getMovingRight())) {
-        // Reset animation when not moving
-        walkCycle_ = 0.0f;
-        for (auto* foot : feet) {
-            foot->rotation = 0.0f;
-            foot->offsetX = 0.0f;
-            foot->offsetY = foot->height / 2.0f; // Default offset below parent node
-        }
-        return;
-    }
-
-    // Update walk cycle based on delta time
-    Uint32 currentTime = SDL_GetTicks();
-    float dt = (currentTime - lastFrameTime_) / 1000.0f; // Delta time in seconds
-    const float cycleDuration = 0.5f; // Time for one full step cycle
-    walkCycle_ += dt / cycleDuration;
-    if (walkCycle_ > 1.0f) walkCycle_ -= 1.0f; // Loop the cycle
-
-    float direction = inputManager_.getMovingRight() ? 1.0f : -1.0f;
-    for (size_t i = 0; i < feet.size(); ++i) {
-        // Alternate phases for each foot
-        float phase = (i == 0) ? walkCycle_ : (walkCycle_ + 0.5f);
-        if (phase > 1.0f) phase -= 1.0f;
-
-        auto* foot = feet[i];
-        // Apply sinusoidal motion for stepping
-        foot->rotation = sin(phase * 2.0f * M_PI) * 0.3f; // ~17 degrees max rotation
-        foot->offsetX = cos(phase * 2.0f * M_PI) * 20.0f * direction; // Horizontal step
-        foot->offsetY = foot->height / 2.0f - 10.0f * sin(phase * 2.0f * M_PI); // Vertical lift
-
-        logDebug("Animating foot %zu: offsetX=%.2f, offsetY=%.2f, rotation=%.2f, onGround=%d\n",
-                 i, foot->offsetX, foot->offsetY, foot->rotation, foot->onGround);
-    }
-}
-
 
 void Game::renderUI() {
-    if (!inputManager_.getInventoryOpen() || !renderer_) {
-        logDebug("renderUI skipped: inventoryOpen=%d, renderer=%p\n", inputManager_.getInventoryOpen(), renderer_);
-        return;
-    }
-    logDebug("Rendering inventory UI\n");
+    if (!inputManager_.getInventoryOpen()) return;
 
     std::vector<SDL_Vertex> vertices;
     std::vector<int> indices;
     int baseIndex = 0;
 
-    // Inventory background
-    SDL_Color bgColor = {100, 0, 100, 255};
-    SDL_FRect invBox = {0, 0, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT};
-    vertices.push_back({{invBox.x, invBox.y}, {bgColor.r / 255.0f, bgColor.g / 255.0f, bgColor.b / 255.0f, bgColor.a / 255.0f}, {0.0f, 0.0f}});
-    vertices.push_back({{invBox.x + invBox.w, invBox.y}, {bgColor.r / 255.0f, bgColor.g / 255.0f, bgColor.b / 255.0f, bgColor.a / 255.0f}, {0.0f, 0.0f}});
-    vertices.push_back({{invBox.x + invBox.w, invBox.y + invBox.h}, {bgColor.r / 255.0f, bgColor.g / 255.0f, bgColor.b / 255.0f, bgColor.a / 255.0f}, {0.0f, 0.0f}});
-    vertices.push_back({{invBox.x, invBox.y + invBox.h}, {bgColor.r / 255.0f, bgColor.g / 255.0f, bgColor.b / 255.0f, bgColor.a / 255.0f}, {0.0f, 0.0f}});
-    indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-    baseIndex += 4;
-
-    // Shape buttons
+    // Draw shape buttons
     for (const auto& btn : inputManager_.getShapeButtons()) {
         SDL_Color color = btn.color;
         vertices.push_back({{btn.rect.x, btn.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
@@ -437,20 +356,28 @@ void Game::renderUI() {
         baseIndex += 4;
     }
 
-    // Node buttons
+    // Draw node buttons if not in HANDS_FEET mode
     if (inputManager_.getCurrentMode() != InputManager::EditMode::HANDS_FEET) {
-        for (const auto& btn : {inputManager_.getAddNodeButton(), inputManager_.getRemoveNodeButton()}) {
-            SDL_Color color = btn.color;
-            vertices.push_back({{btn.rect.x, btn.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-            vertices.push_back({{btn.rect.x + btn.rect.w, btn.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-            vertices.push_back({{btn.rect.x + btn.rect.w, btn.rect.y + btn.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-            vertices.push_back({{btn.rect.x, btn.rect.y + btn.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-            indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-            baseIndex += 4;
-        }
+        auto addBtn = inputManager_.getAddNodeButton();
+        SDL_Color addColor = addBtn.color;
+        vertices.push_back({{addBtn.rect.x, addBtn.rect.y}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{addBtn.rect.x + addBtn.rect.w, addBtn.rect.y}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{addBtn.rect.x + addBtn.rect.w, addBtn.rect.y + addBtn.rect.h}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{addBtn.rect.x, addBtn.rect.y + addBtn.rect.h}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
+        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
+        baseIndex += 4;
+
+        auto removeBtn = inputManager_.getRemoveNodeButton();
+        SDL_Color removeColor = removeBtn.color;
+        vertices.push_back({{removeBtn.rect.x, removeBtn.rect.y}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{removeBtn.rect.x + removeBtn.rect.w, removeBtn.rect.y}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{removeBtn.rect.x + removeBtn.rect.w, removeBtn.rect.y + removeBtn.rect.h}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{removeBtn.rect.x, removeBtn.rect.y + removeBtn.rect.h}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
+        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
+        baseIndex += 4;
     }
 
-    // Edit mode tabs
+    // Draw edit mode buttons
     for (const auto& tab : inputManager_.getEditModeButtons()) {
         SDL_Color color = tab.color;
         vertices.push_back({{tab.rect.x, tab.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
@@ -461,41 +388,25 @@ void Game::renderUI() {
         baseIndex += 4;
     }
 
-    if (SDL_RenderGeometry(renderer_, nullptr, vertices.data(), vertices.size(), indices.data(), indices.size()) != 0) {
-        logDebug("SDL_RenderGeometry failed: %s\n", SDL_GetError());
-    }
+    renderer_.renderGeometry(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-    // Draw outlines for selected buttons
-    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    // Draw borders for active buttons
+    renderer_.setDrawColor({255, 255, 255, 255});
     for (const auto& btn : inputManager_.getShapeButtons()) {
         if ((inputManager_.getCurrentMode() == InputManager::EditMode::TORSO && btn.shapeType == player_.shapetype) ||
             ((inputManager_.getCurrentMode() == InputManager::EditMode::APPENDAGE || inputManager_.getCurrentMode() == InputManager::EditMode::HANDS_FEET) && btn.shapeType == inputManager_.getCurrentShape() && inputManager_.getShapeSelectedForAppendage())) {
-            SDL_RenderRect(renderer_, &btn.rect);
+            renderer_.drawRect(&btn.rect);
         }
     }
     if (inputManager_.getCurrentMode() != InputManager::EditMode::HANDS_FEET) {
-        if (inputManager_.getPlacingNode()) SDL_RenderRect(renderer_, &inputManager_.getAddNodeButton().rect);
-        if (inputManager_.getRemovingNode()) SDL_RenderRect(renderer_, &inputManager_.getRemoveNodeButton().rect);
+        if (inputManager_.getPlacingNode()) renderer_.drawRect(&inputManager_.getAddNodeButton().rect);
+        if (inputManager_.getRemovingNode()) renderer_.drawRect(&inputManager_.getRemoveNodeButton().rect);
     }
     for (const auto& tab : inputManager_.getEditModeButtons()) {
-        if (tab.mode == inputManager_.getCurrentMode()) SDL_RenderRect(renderer_, &tab.rect);
+        if (tab.mode == inputManager_.getCurrentMode()) {
+            renderer_.drawRect(&tab.rect);
+        }
     }
-}
-
-void Game::render() {
-    if (!renderer_) return;
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 100, 255);
-    SDL_RenderClear(renderer_);
-    renderUI();
-    SDL_SetRenderDrawColor(renderer_, 255, 0, 0, 255);
-    drawEntityWithNodesAndLines(renderer_, &player_);
-
-    SDL_SetRenderDrawColor(renderer_, 0, 200, 255, 255);
-    drawEntityWithNodesAndLines(renderer_, &grabbableBall_);
-
-    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
-    SDL_RenderLine(renderer_, 0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SCREEN_HEIGHT - 1);
-    SDL_RenderPresent(renderer_);
 }
 
 bool Game::addAppendageToEntity(Entity* entity, float mouseX, float mouseY, Shape shape, int& nodeIndex, Entity*& parentEntity, bool isHandOrFoot) {
@@ -509,34 +420,23 @@ bool Game::addAppendageToEntity(Entity* entity, float mouseX, float mouseY, Shap
                 logDebug("Appendage limit reached (%d) for entity at (%.2f, %.2f)\n", MAX_APPENDAGES, entity->Xpos, entity->Ypos);
                 return false;
             }
-            Entity appendage;
+            Entity appendage(-1); // Initialize with coreNodeIndex = -1, will be set below
             int width = 50;
             int height = 50;
             SDL_FPoint nodePos = {entity->nodes[i].x, entity->nodes[i].y};
             float offset = 50;
-            initEntity(&appendage, renderer_, nodePos.x, nodePos.y + offset, width, height, shape, {0, 255, 0, 255}, 50, isHandOrFoot);
+            initEntity(&appendage, &renderer_, nodePos.x, nodePos.y + offset, width, height, shape, {0, 255, 0, 255}, 50, isHandOrFoot);
             appendage.isCore = false;
             appendage.coreNodeIndex = i;
             appendage.offsetX = 0.0f;
             appendage.offsetY = offset;
-
-            // --- HAND/FOOT LOGIC START ---
             appendage.isHandOrFoot = isHandOrFoot;
-            if (isHandOrFoot && shape == TRIANGLE) {
-                appendage.isLeg = false; // It's a hand
-                // Optionally: appendage.isHand = true; // If you add this field
-            } else if (isHandOrFoot && shape == RECTANGLE) {
-                appendage.isLeg = true; // It's a foot/leg
-            } else {
-                appendage.isLeg = false;
-            }
-            // --- HAND/FOOT LOGIC END ---
-
+            appendage.isLeg = isHandOrFoot && shape == Shape::RECTANGLE;
             entity->appendages.push_back(std::make_unique<Entity>(std::move(appendage)));
             nodeIndex = i;
             parentEntity = entity;
-            logDebug("Added %s appendage to node %d at x=%.2f, y=%.2f on entity at (%.2f, %.2f), isLeg=%d\n",
-                     isHandOrFoot ? "hand/foot" : "regular", i, nodePos.x, nodePos.y, entity->Xpos, entity->Ypos, appendage.isLeg);
+            logDebug("Added %s appendage (shape=%d, isHandOrFoot=%d, isLeg=%d) to node %d at x=%.2f, y=%.2f on entity at (%.2f, %.2f)\n",
+                     isHandOrFoot ? "hand/foot" : "regular", shape, isHandOrFoot, appendage.isLeg, i, nodePos.x, nodePos.y, entity->Xpos, entity->Ypos);
             return true;
         }
     }
@@ -562,4 +462,16 @@ void Game::run() {
         }
         lastFrameTime_ = currentTime;
     }
+}
+
+void Game::render() {
+    renderer_.clear({100, 100, 100, 255});
+    renderUI();
+    renderer_.setDrawColor({255, 0, 0, 255});
+    renderer_.drawEntityWithNodesAndLines(&player_);
+    renderer_.setDrawColor({0, 200, 255, 255});
+    renderer_.drawEntityWithNodesAndLines(&grabbableBall_);
+    renderer_.setDrawColor({255, 255, 255, 255});
+    renderer_.drawLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SCREEN_HEIGHT - 1);
+    renderer_.present();
 }
