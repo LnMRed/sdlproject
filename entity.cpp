@@ -20,8 +20,8 @@ NodeRel absoluteToRelative(Entity* entity, float abs_x, float abs_y) {
     rel.x_rel = rx / (entity->width / 2.0f);
     rel.y_rel = ry / (entity->height / 2.0f);
     
-    printf("Absolute to relative: abs_x=%.2f, abs_y=%.2f, entity=(%.2f, %.2f), rotation=%.2f, x_rel=%.2f, y_rel=%.2f\n",
-           abs_x, abs_y, cx, cy, entity->rotation, rel.x_rel, rel.y_rel);
+    //printf("Absolute to relative: abs_x=%.2f, abs_y=%.2f, entity=(%.2f, %.2f), rotation=%.2f, x_rel=%.2f, y_rel=%.2f\n",
+    //       abs_x, abs_y, cx, cy, entity->rotation, rel.x_rel, rel.y_rel);
     
     return rel;
 }
@@ -34,8 +34,8 @@ SDL_FPoint relativeToAbsolute(Entity* entity, NodeRel nodeRel) {
     abs.x = entity->Xpos + rx * cos(rot) - ry * sin(rot);
     abs.y = entity->Ypos + rx * sin(rot) + ry * cos(rot);
     
-    printf("Relative to absolute: x_rel=%.2f, y_rel=%.2f, entity=(%.2f, %.2f), rotation=%.2f, abs_x=%.2f, abs_y=%.2f\n",
-           nodeRel.x_rel, nodeRel.y_rel, entity->Xpos, entity->Ypos, rot, abs.x, abs.y);
+    //printf("Relative to absolute: x_rel=%.2f, y_rel=%.2f, entity=(%.2f, %.2f), rotation=%.2f, abs_x=%.2f, abs_y=%.2f\n",
+    //      nodeRel.x_rel, nodeRel.y_rel, entity->Xpos, entity->Ypos, rot, abs.x, abs.y);
     
     return abs;
 }
@@ -294,6 +294,29 @@ bool shouldRemoveAppendage(const std::unique_ptr<Entity>& entity) {
     return entity->appendages.empty();
 }
 
+void deleteAppendagesAtNode(Entity* entity, int nodeIndex)
+{
+    if (!entity) return;
+
+    auto it = entity->appendages.begin();
+    while (it != entity->appendages.end()) {
+        if ((*it)->coreNodeIndex == nodeIndex) {
+            for(auto& app : (*it)->appendages) {
+                destroyEntity(app.get());
+            }
+            (*it)->appendages.clear();
+            destroyEntity(it->get());
+            it = entity->appendages.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto& app : entity->appendages) {
+        deleteAppendagesAtNode(app.get(), nodeIndex);
+    }
+
+}
+
 void removeNodeFromEntity(Entity* entity, float mouseX, float mouseY) {
     float minDist = 100.0f; // Threshold for node proximity
     int closestNode = -1;
@@ -312,6 +335,12 @@ void removeNodeFromEntity(Entity* entity, float mouseX, float mouseY) {
             if (!nodeInUse) {
                 minDist = dist;
                 closestNode = i;
+            } else 
+            {
+                deleteAppendagesAtNode(entity, i);
+                minDist = dist;
+                closestNode = i;
+                printf("Deleted appendages at node %d before removal\n", i);
             }
         }
     }
