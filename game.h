@@ -44,6 +44,9 @@ private:
     std::vector<Entity*> grabbableEntities_;
     Entity grabbableBall_; 
 
+
+    Entity* findParent(Entity* root, Entity* target);
+
     Entity* getGrabbableAt(float x, float y, float tolerance);
     float distanceSquared(float x1, float y1, float x2, float y2) const;
     void update();

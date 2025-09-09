@@ -75,6 +75,18 @@ bool Game::init() {
     return true;
 }
 
+Entity* Game::findParent(Entity* root, Entity* target)
+{
+    for (auto& app : root->appendages) {
+        if (app.get() == target) {
+            return root;
+        }
+        Entity* found = findParent(app.get(), target);
+        if (found) return found;
+    }
+    return nullptr;
+}
+
 void Game::updateHands(Entity* entity) {
     // Use InputManager’s tracked state instead of SDL_GetMouseState
     bool isLeftMouseDown = inputManager_.isLeftMouseHeld();
@@ -130,17 +142,13 @@ void Game::updateHands(Entity* entity) {
                     app->grabbedObject->Ypos = nodeY + app->offsetY;
                     app->grabbedObject->Xvel = 0.0f;
                     app->grabbedObject->Yvel = 0.0f;
-                    logDebug("Grabbed object moved to (%.2f, %.2f)\n",
-                             app->grabbedObject->Xpos, app->grabbedObject->Ypos);
                 }
+
+                // Update appendage position based on offsets
+                app->Xpos = nodeX + app->offsetX;
+                app->Ypos = nodeY + app->offsetY;
             }
         }
-        else if (app->grabbedObject && !app->grabbing) {
-            // Safety release (in case branch above didn’t catch it)
-            app->grabbedObject = nullptr;
-            logDebug("Released grabbed object (safety)\n");
-        }
-        // Recurse into appendages
         updateHands(app.get());
     }
 }
@@ -304,29 +312,13 @@ void Game::logDebug(const char* format, ...) const {
 }
 
 bool Game::findParentNodePosition(Entity* appendage, float& nodeX, float& nodeY) {
-    if (!appendage || appendage->isCore || appendage->coreNodeIndex < 0) {
-        return false;
-    }
-    Entity* parent = &player_;
-    for (auto& app : parent->appendages) {
-        if (app.get() == appendage) {
-            if (appendage->coreNodeIndex < parent->nodeCount) {
-                nodeX = parent->nodes[appendage->coreNodeIndex].x;
-                nodeY = parent->nodes[appendage->coreNodeIndex].y;
-                return true;
-            }
-            return false;
-        }
-        for (auto& subApp : app->appendages) {
-            if (subApp.get() == appendage) {
-                if (appendage->coreNodeIndex < app->nodeCount) {
-                    nodeX = app->nodes[appendage->coreNodeIndex].x;
-                    nodeY = app->nodes[appendage->coreNodeIndex].y;
-                    return true;
-                }
-                return false;
-            }
-        }
+    if (!appendage || appendage->coreNodeIndex < 0) return false;
+    
+    Entity* parent = findParent(&player_, appendage);
+    if (parent) {
+        nodeX = parent->nodes[appendage->coreNodeIndex].x;
+        nodeY = parent->nodes[appendage->coreNodeIndex].y;
+        return true;
     }
     return false;
 }
