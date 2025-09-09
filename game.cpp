@@ -222,7 +222,10 @@ void Game::update() {
     }
 
     if (inputManager_.getJumpRequested() && player_.onGround && !inputManager_.getInventoryOpen()) {
-        player_.Yvel = -10.0f;
+        int numLegs = getFeet(&player_).size();
+        float baseJumpPower = -50.0f;
+        float jumpPower = baseJumpPower * std::max(1, numLegs); // At least 1 leg
+        player_.Yvel = jumpPower;
         player_.onGround = false;
         inputManager_.clearJumpRequested();
         logDebug("Jump initiated: Yvel=%.2f\n", player_.Yvel);
