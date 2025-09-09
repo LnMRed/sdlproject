@@ -40,12 +40,11 @@ private:
     int currentStepFoot_;
     float walkCycle_;
     Uint32 lastFrameTime_;
-    
+    RenderData renderData_;
     std::vector<Entity*> grabbableEntities_;
     Entity grabbableBall_; 
 
     Entity* getGrabbableAt(float x, float y, float tolerance);
-
     float distanceSquared(float x1, float y1, float x2, float y2) const;
     void update();
     void render();

@@ -341,60 +341,20 @@ float Game::distanceSquared(float x1, float y1, float x2, float y2) const {
 void Game::renderUI() {
     if (!inputManager_.getInventoryOpen()) return;
 
-    std::vector<SDL_Vertex> vertices;
-    std::vector<int> indices;
-    int baseIndex = 0;
+    RenderData uiData;
+    renderer_.collectUIGeometry(inputManager_.getShapeButtons(),
+                              inputManager_.getEditModeButtons(),
+                              inputManager_.getAddNodeButton(),
+                              inputManager_.getRemoveNodeButton(),
+                              uiData);
+    renderer_.renderBatchedGeometry(uiData);
 
-    // Draw shape buttons
-    for (const auto& btn : inputManager_.getShapeButtons()) {
-        SDL_Color color = btn.color;
-        vertices.push_back({{btn.rect.x, btn.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{btn.rect.x + btn.rect.w, btn.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{btn.rect.x + btn.rect.w, btn.rect.y + btn.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{btn.rect.x, btn.rect.y + btn.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-        baseIndex += 4;
-    }
-
-    // Draw node buttons if not in HANDS_FEET mode
-    if (inputManager_.getCurrentMode() != InputManager::EditMode::HANDS_FEET) {
-        auto addBtn = inputManager_.getAddNodeButton();
-        SDL_Color addColor = addBtn.color;
-        vertices.push_back({{addBtn.rect.x, addBtn.rect.y}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{addBtn.rect.x + addBtn.rect.w, addBtn.rect.y}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{addBtn.rect.x + addBtn.rect.w, addBtn.rect.y + addBtn.rect.h}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{addBtn.rect.x, addBtn.rect.y + addBtn.rect.h}, {addColor.r / 255.0f, addColor.g / 255.0f, addColor.b / 255.0f, addColor.a / 255.0f}, {0.0f, 0.0f}});
-        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-        baseIndex += 4;
-
-        auto removeBtn = inputManager_.getRemoveNodeButton();
-        SDL_Color removeColor = removeBtn.color;
-        vertices.push_back({{removeBtn.rect.x, removeBtn.rect.y}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{removeBtn.rect.x + removeBtn.rect.w, removeBtn.rect.y}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{removeBtn.rect.x + removeBtn.rect.w, removeBtn.rect.y + removeBtn.rect.h}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{removeBtn.rect.x, removeBtn.rect.y + removeBtn.rect.h}, {removeColor.r / 255.0f, removeColor.g / 255.0f, removeColor.b / 255.0f, removeColor.a / 255.0f}, {0.0f, 0.0f}});
-        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-        baseIndex += 4;
-    }
-
-    // Draw edit mode buttons
-    for (const auto& tab : inputManager_.getEditModeButtons()) {
-        SDL_Color color = tab.color;
-        vertices.push_back({{tab.rect.x, tab.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{tab.rect.x + tab.rect.w, tab.rect.y}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{tab.rect.x + tab.rect.w, tab.rect.y + tab.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        vertices.push_back({{tab.rect.x, tab.rect.y + tab.rect.h}, {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f}, {0.0f, 0.0f}});
-        indices.insert(indices.end(), {baseIndex, baseIndex + 1, baseIndex + 2, baseIndex + 2, baseIndex + 3, baseIndex});
-        baseIndex += 4;
-    }
-
-    renderer_.renderGeometry(vertices.data(), vertices.size(), indices.data(), indices.size());
-
-    // Draw borders for active buttons
     renderer_.setDrawColor({255, 255, 255, 255});
     for (const auto& btn : inputManager_.getShapeButtons()) {
         if ((inputManager_.getCurrentMode() == InputManager::EditMode::TORSO && btn.shapeType == player_.shapetype) ||
-            ((inputManager_.getCurrentMode() == InputManager::EditMode::APPENDAGE || inputManager_.getCurrentMode() == InputManager::EditMode::HANDS_FEET) && btn.shapeType == inputManager_.getCurrentShape() && inputManager_.getShapeSelectedForAppendage())) {
+            ((inputManager_.getCurrentMode() == InputManager::EditMode::APPENDAGE || 
+              inputManager_.getCurrentMode() == InputManager::EditMode::HANDS_FEET) && 
+             btn.shapeType == inputManager_.getCurrentShape() && inputManager_.getShapeSelectedForAppendage())) {
             renderer_.drawRect(&btn.rect);
         }
     }
@@ -420,7 +380,7 @@ bool Game::addAppendageToEntity(Entity* entity, float mouseX, float mouseY, Shap
                 logDebug("Appendage limit reached (%d) for entity at (%.2f, %.2f)\n", MAX_APPENDAGES, entity->Xpos, entity->Ypos);
                 return false;
             }
-            Entity appendage(-1); // Initialize with coreNodeIndex = -1, will be set below
+            Entity appendage(-1);
             int width = 50;
             int height = 50;
             SDL_FPoint nodePos = {entity->nodes[i].x, entity->nodes[i].y};
@@ -466,12 +426,16 @@ void Game::run() {
 
 void Game::render() {
     renderer_.clear({100, 100, 100, 255});
+
+    renderData_.clear();
+    renderer_.collectAllGeometry(&player_, renderData_, true);
+    renderer_.collectAllGeometry(&grabbableBall_, renderData_, false);
+    renderer_.renderBatchedGeometry(renderData_);
+
     renderUI();
-    renderer_.setDrawColor({255, 0, 0, 255});
-    renderer_.drawEntityWithNodesAndLines(&player_);
-    renderer_.setDrawColor({0, 200, 255, 255});
-    renderer_.drawEntityWithNodesAndLines(&grabbableBall_);
+
     renderer_.setDrawColor({255, 255, 255, 255});
     renderer_.drawLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SCREEN_HEIGHT - 1);
+
     renderer_.present();
 }

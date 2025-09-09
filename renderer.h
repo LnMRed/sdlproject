@@ -4,11 +4,21 @@
 #include <SDL3/SDL.h>
 #include <vector>
 #include "entity.h" // For Entity, Shape, SDL_Color, etc.
+#include "InputManager.h"
 
 struct RenderBatch {
     std::vector<SDL_Vertex> vertices;
     std::vector<int> indices;
     Shape shapeType;
+};
+
+struct RenderData {
+    std::vector<SDL_Vertex> vertices;
+    std::vector<int> indices; // Use int for indices
+    void clear() {
+        vertices.clear();
+        indices.clear();
+    }
 };
 
 class Renderer {
@@ -19,6 +29,9 @@ public:
     Renderer(SDL_Renderer* sdl_renderer) : sdl_renderer_(sdl_renderer) {}
 
     SDL_Renderer* getSDLRenderer() const { return sdl_renderer_; }
+
+    void collectLineGeometry(float x1, float y1, float x2, float y2, SDL_Color color, RenderData& data, float thickness);
+    void collectConnectionLinesGeometry(Entity* entity, RenderData& data, SDL_Color color);
 
     void setDrawColor(SDL_Color color) {
         SDL_SetRenderDrawColor(sdl_renderer_, color.r, color.g, color.b, color.a);
@@ -41,6 +54,12 @@ public:
         SDL_RenderGeometry(sdl_renderer_, nullptr, vertices, num_vertices, indices, num_indices);
     }
 
+    void renderBatchedGeometry(const RenderData& data) {
+        if (!data.vertices.empty()) {
+            renderGeometry(data.vertices.data(), data.vertices.size(), data.indices.data(), data.indices.size());
+        }
+    }
+
     void renderTextureRotated(SDL_Texture* texture, const SDL_FRect* dst, double angle, const SDL_FPoint* point, SDL_FlipMode flip) {
         SDL_RenderTextureRotated(sdl_renderer_, texture, nullptr, dst, angle, point, flip);
     }
@@ -53,7 +72,7 @@ public:
         SDL_RenderFillRect(sdl_renderer_, rect);
     }
 
- SDL_Texture* createTexture(SDL_PixelFormat format, SDL_TextureAccess access, int w, int h) {
+    SDL_Texture* createTexture(SDL_PixelFormat format, SDL_TextureAccess access, int w, int h) {
         return SDL_CreateTexture(sdl_renderer_, format, access, w, h);
     }
 
@@ -73,6 +92,12 @@ public:
     void drawFilledTriangle(SDL_Point p1, SDL_Point p2, SDL_Point p3, SDL_Color color, float rotation);
     void drawEntity(Entity* entity);
     void drawEntityWithNodesAndLines(Entity* entity);
+    void collectAllGeometry(Entity* rootEntity, RenderData& data, bool includeNodes = true);
+    void collectUIGeometry(const std::vector<InputManager::ShapeButton>& shapeButtons,
+                          const std::vector<InputManager::EditModeButton>& editModeButtons,
+                          const InputManager::ShapeButton& addNodeBtn,
+                          const InputManager::ShapeButton& removeNodeBtn,
+                          RenderData& data);
 };
 
 void collectEntityGeometry(Entity* entity, std::vector<RenderBatch>& batches);
